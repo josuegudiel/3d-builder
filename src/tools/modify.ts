@@ -407,6 +407,12 @@ export class RotateTool extends BaseTool {
 // Escalar
 // ---------------------------------------------------------------------------
 
+/**
+ * Tirador de la caja envolvente. Las posiciones están en el espacio del
+ * CONTEXTO de edición, no del mundo: si se está editando un grupo girado, los
+ * factores de escala deben referirse a sus ejes locales, que es lo que espera
+ * `scaleEntities`.
+ */
 interface Grip {
   /** Índice (-1, 0, 1) en cada eje. */
   ix: number;
@@ -444,12 +450,14 @@ export class ScaleTool extends BaseTool {
     for (const v of resolveVertices(geo, {
       vertices: [...sel.vertices], edges: [...sel.edges], faces: [...sel.faces],
     })) {
-      expandBox(box, this.world(geo.vertexPos(v)));
+      expandBox(box, geo.vertexPos(v));
     }
     for (const instId of sel.instances) {
       const inst = geo.instances.get(instId);
       if (!inst) continue;
-      for (const c of this.editor.model.instanceBoxCorners(inst)) expandBox(box, this.world(c));
+      // `instanceBoxCorners` ya aplica la transformación de la instancia, así
+      // que sus esquinas están en el espacio del contenedor.
+      for (const c of this.editor.model.instanceBoxCorners(inst)) expandBox(box, c);
     }
     this.box = box;
     this.grips = [];
@@ -492,7 +500,13 @@ export class ScaleTool extends BaseTool {
       return;
     }
 
-    const ray = this.editor.viewport.rayFromClient(e.clientX, e.clientY);
+    const worldRay = this.editor.viewport.rayFromClient(e.clientX, e.clientY);
+    // El rayo se lleva al espacio del contexto para razonar en los mismos ejes
+    // que la caja envolvente y que la propia escala.
+    const ray = {
+      origin: this.editor.toContext(worldRay.origin),
+      dir: normalize(this.editor.toContextVector(worldRay.dir)),
+    };
     const g = this.active;
     const original = sub(g.position, g.opposite);
     // Se busca el punto del rayo más cercano a la recta tirador-opuesto.
@@ -532,7 +546,7 @@ export class ScaleTool extends BaseTool {
     let best: Grip | null = null;
     let bestD = 14;
     for (const g of this.grips) {
-      const s = this.editor.viewport.worldToScreen(g.position);
+      const s = this.editor.viewport.worldToScreen(this.world(g.position));
       const d = Math.hypot(s.x - cursor.x, s.y - cursor.y);
       if (d < bestD) {
         bestD = d;
@@ -555,7 +569,7 @@ export class ScaleTool extends BaseTool {
       this.cancel();
       return;
     }
-    const origin = this.editor.toContext(g.opposite);
+    const origin = g.opposite;
     const sel = this.editor.selection;
     const targets = {
       vertices: [...sel.vertices],
@@ -633,7 +647,7 @@ export class ScaleTool extends BaseTool {
     const corners = [
       v3(min.x, min.y, min.z), v3(max.x, min.y, min.z), v3(max.x, max.y, min.z), v3(min.x, max.y, min.z),
       v3(min.x, min.y, max.z), v3(max.x, min.y, max.z), v3(max.x, max.y, max.z), v3(min.x, max.y, max.z),
-    ].map(preview);
+    ].map((p) => this.world(preview(p)));
     const pairs: Array<[number, number]> = [
       [0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4],
       [0, 4], [1, 5], [2, 6], [3, 7],
@@ -642,10 +656,17 @@ export class ScaleTool extends BaseTool {
 
     for (const g of this.grips) {
       const active = this.active === g;
-      overlay.addGlyph(preview(g.position), active ? THEME.selection : THEME.highlight, 'square');
+      overlay.addGlyph(
+        this.world(preview(g.position)),
+        active ? THEME.selection : THEME.highlight,
+        'square',
+      );
     }
 
-    if (this.active) drawSelectionGhost(this.editor, overlay, preview);
+    // La previsualización recibe puntos en el mundo, así que hay que ir y volver.
+    if (this.active) {
+      drawSelectionGhost(this.editor, overlay, (p) => this.world(preview(this.editor.toContext(p))));
+    }
   }
 }
 

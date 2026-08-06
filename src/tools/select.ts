@@ -3,7 +3,7 @@ import { PointerInfo } from '../app/editor';
 import { Overlay } from '../render/overlay';
 import { pickEntity, boxSelect } from '../pick/picker';
 import {
-  clearSelection, toggleEntity, addEntity, removeEntity, hasEntity,
+  clearSelection, toggleEntity, addEntity, removeEntity,
   expandFaceToEdges, selectConnected,
 } from '../core/selection';
 import { EntityKind } from '../core/model/types';
@@ -181,9 +181,10 @@ export class SelectTool extends BaseTool {
     } else if (e.ctrlKey) {
       addEntity(sel, kind, hit.id);
     } else {
-      const already = hasEntity(sel, kind, hit.id);
+      // Clic simple: la entidad pasa a ser la única seleccionada, aunque ya lo
+      // estuviera (así se reduce una selección múltiple a un solo elemento).
       clearSelection(sel);
-      if (!already || true) addEntity(sel, kind, hit.id);
+      addEntity(sel, kind, hit.id);
     }
 
     this.editor.refreshModel();

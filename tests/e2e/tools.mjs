@@ -239,15 +239,7 @@ async function main() {
   await page.goto(URL_BASE, { waitUntil: 'networkidle' });
   await page.waitForTimeout(900);
 
-  await page.addScriptTag({
-    type: 'module',
-    content: `
-      import * as tri from '/src/core/topology/triangulate.ts';
-      import * as orient from '/src/core/topology/orient.ts';
-      window.__tri = tri;
-      window.__orient = orient;
-    `,
-  });
+  await page.addScriptTag({ type: 'module', content: KERNEL_IMPORTS });
   await page.waitForTimeout(400);
 
   const booted = await page.evaluate(() => !!window.form3d && !!window.__tri);
