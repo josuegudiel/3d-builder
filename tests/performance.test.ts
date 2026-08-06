@@ -91,7 +91,7 @@ describe('rendimiento', () => {
 
   it('crea un polígono de 128 lados y lo extruye', () => {
     const g = newGeometry();
-    const pts = [];
+    const pts: ReturnType<typeof v3>[] = [];
     for (let i = 0; i < 128; i++) {
       const a = (i / 128) * Math.PI * 2;
       pts.push(v3(Math.cos(a) * 3, Math.sin(a) * 3, 0));

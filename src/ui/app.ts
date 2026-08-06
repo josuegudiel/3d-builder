@@ -33,6 +33,8 @@ import { StandardView } from '../render/camera';
 import { Model } from '../core/model/model';
 import { AutoSave } from '../app/autosave';
 import { ContextMenu } from './contextmenu';
+import { SOLIDS } from '../core/ops/solids';
+import { openSolidDialog } from './solids-dialog';
 import { CameraState } from '../render/camera';
 
 interface ToolEntry {
@@ -129,6 +131,10 @@ export class AppUI {
         { label: 'Invertir caras', action: () => this.doFlipFaces() },
         { label: 'Orientar caras del sólido', action: () => this.doOrient() },
       ]),
+      this.buildMenu('Insertar', SOLIDS.map((def) => ({
+        label: def.label,
+        action: () => openSolidDialog(this.editor, def),
+      }))),
       this.buildMenu('Ver', [
         { label: 'Encajar todo', keys: 'Mayús+Z', action: () => this.editor.zoomExtents() },
         { label: 'Encajar selección', action: () => this.editor.zoomSelection() },
