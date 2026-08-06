@@ -355,53 +355,68 @@ async function main() {
       `${without} colores sin ella, ${with_} con ella`);
   }
   // La rejilla vive en el suelo: no puede verse a través de una cara sólida.
+  //
+  // Se usa una caja grande en vista isométrica y se comprueban las DOS
+  // proyecciones: el defecto que motivó esta comprobación sólo aparecía en
+  // perspectiva, porque las líneas de la rejilla cruzaban el plano de la cámara
+  // y el recorte al plano cercano falseaba su profundidad.
   const bleed = await page.evaluate(() => {
     const app = window.form3d;
-    app.api.rectangle(-1.5, -1.5, 1.5, 1.5);
-    app.api.pushPull(app.api.faceNear(app.api.p(0, 0, 0)), 1.2);
-    app.api.view('iso');
-    app.api.zoomExtents();
+    const api = app.api;
+    api.rectangle(-4, -4, 4, 4);
+    api.pushPull(api.faceNear(api.p(0, 0, 0)), 3);
+    api.view('iso');
+    api.zoomExtents();
 
-    const geo = app.editor.geometry;
-    let top = null;
-    let bestZ = -Infinity;
-    for (const f of geo.faces.values()) {
-      const pts = f.loops[0].vertices.map((v) => geo.vertexPos(v));
-      const z = pts.reduce((a, p) => a + p.z, 0) / pts.length;
-      if (z > bestZ) { bestZ = z; top = f.id; }
-    }
-    const centre = app.api.faces().find((f) => f.id === top).centre;
-    const s = app.viewport.worldToScreen(centre);
+    const s = app.viewport.worldToScreen({ x: 0, y: 0, z: 3 });
     const ratio = app.viewport.renderer.getPixelRatio();
-    const sx = Math.round(s.x * ratio) - 12;
-    const sy = Math.round(s.y * ratio) - 12;
+    const sx = Math.round(s.x * ratio) - 40;
+    const sy = Math.round(s.y * ratio) - 15;
 
-    const sample = () => {
+    const grab = () => {
       app.viewport.forceRender();
       const cvs = app.viewport.renderer.domElement;
-      const tmp = document.createElement('canvas');
-      tmp.width = cvs.width;
-      tmp.height = cvs.height;
-      const ctx = tmp.getContext('2d');
-      ctx.drawImage(cvs, 0, 0);
-      return ctx.getImageData(sx, sy, 24, 24).data;
+      const t = document.createElement('canvas');
+      t.width = cvs.width;
+      t.height = cvs.height;
+      const c = t.getContext('2d');
+      c.drawImage(cvs, 0, 0);
+      return c.getImageData(sx, sy, 80, 30).data;
+    };
+    const diff = (a, b) => {
+      let n = 0;
+      for (let i = 0; i < a.length; i += 4) {
+        if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) n++;
+      }
+      return n;
     };
 
-    app.viewport.options.showGrid = true;
-    const con = sample();
-    app.viewport.options.showGrid = false;
-    const sin = sample();
-    app.viewport.options.showGrid = true;
-    app.viewport.invalidate();
-
-    let n = 0;
-    for (let i = 0; i < con.length; i += 4) {
-      if (con[i] !== sin[i] || con[i + 1] !== sin[i + 1] || con[i + 2] !== sin[i + 2]) n++;
+    const out = {};
+    for (const modo of ['perspective', 'parallel']) {
+      app.viewport.cameraCtl.setMode(modo);
+      app.viewport.options.showGrid = true;
+      const con = grab();
+      app.viewport.options.showGrid = false;
+      const sin = grab();
+      app.viewport.options.showGrid = true;
+      out[modo] = diff(con, sin);
     }
-    return n;
+    app.viewport.cameraCtl.setMode('perspective');
+
+    // Control: la banda muestreada debe estar realmente DENTRO de la tapa, o la
+    // comprobación no valdría nada. Al borrar la caja debe cambiar entera.
+    const conCaja = grab();
+    api.eraseEdges([...app.editor.geometry.edges.keys()]);
+    out.control = diff(conCaja, grab());
+    out.total = 80 * 30;
+    return out;
   });
-  check('la rejilla no atraviesa las caras sólidas', bleed === 0,
-    `${bleed} píxeles cambian dentro de la cara al conmutarla`);
+  check('la banda muestreada está dentro de la cara', bleed.control > bleed.total * 0.9,
+    `${bleed.control}/${bleed.total} píxeles cambian al borrar la caja`);
+  check('la rejilla no atraviesa las caras en perspectiva', bleed.perspective === 0,
+    `${bleed.perspective} píxeles`);
+  check('la rejilla no atraviesa las caras en proyección paralela', bleed.parallel === 0,
+    `${bleed.parallel} píxeles`);
 
   await shot(page, '10-entorno');
 

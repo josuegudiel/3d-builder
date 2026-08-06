@@ -296,18 +296,35 @@ export class Viewport {
       this.gridLines.geometry.dispose();
     }
 
-    const half = 60;
+    // Cada línea se emite TROCEADA en segmentos de una celda.
+    //
+    // Con un único segmento de extremo a extremo —varias veces la distancia de
+    // la cámara— la línea cruza el plano de la cámara, y el recorte al plano
+    // cercano que hace LineMaterial en perspectiva deja mal la profundidad
+    // interpolada del cuádruple: la rejilla se colaba por delante de las caras
+    // sólidas. Ningún segmento de una celda puede cruzar ese plano.
+    const half = 50;
     const positions: number[] = [];
     const colors: number[] = [];
     const minor = new THREE.Color(THEME.grid);
     const major = new THREE.Color(THEME.gridMajor);
-    const extent = half * step;
+
+    const pushCell = (
+      x0: number, y0: number, x1: number, y1: number, c: THREE.Color,
+    ) => {
+      positions.push(x0, y0, 0, x1, y1, 0);
+      colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+    };
+
     for (let i = -half; i <= half; i++) {
       const c = i % 10 === 0 ? major : minor;
       const p = i * step;
-      positions.push(p, -extent, 0, p, extent, 0);
-      positions.push(-extent, p, 0, extent, p, 0);
-      for (let k = 0; k < 4; k++) colors.push(c.r, c.g, c.b);
+      for (let j = -half; j < half; j++) {
+        const a = j * step;
+        const b = (j + 1) * step;
+        pushCell(p, a, p, b, c);   // línea paralela al eje Y
+        pushCell(a, p, b, p, c);   // línea paralela al eje X
+      }
     }
     const geom = new LineSegmentsGeometry();
     geom.setPositions(positions);
