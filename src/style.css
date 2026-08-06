@@ -592,6 +592,14 @@ button {
   outline-offset: -1px;
 }
 
+/* Menú contextual del botón derecho */
+.context-menu {
+  box-shadow: 0 6px 24px rgba(20, 30, 40, 0.18);
+  min-width: 210px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
 /* --- Diálogo modal -------------------------------------------------------- */
 
 .modal-backdrop {

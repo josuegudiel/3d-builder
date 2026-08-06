@@ -108,6 +108,11 @@ export class Editor {
   /**
    * Convierte un punto del mundo al espacio del modelo raíz. Las cotas y las
    * guías se guardan siempre ahí, no dentro del grupo que se esté editando.
+   *
+   * La definición raíz no tiene transformación propia, así que su espacio y el
+   * del mundo coinciden: la conversión es la identidad. La función existe para
+   * que las herramientas expresen su intención y para que siga siendo correcta
+   * si algún día la raíz dejara de estar en el origen.
    */
   toRoot(p: Vec3): Vec3 {
     return p;

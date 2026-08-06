@@ -31,6 +31,9 @@ import { exportOBJ } from '../core/io/obj';
 import { exportSTLBinary } from '../core/io/stl';
 import { StandardView } from '../render/camera';
 import { Model } from '../core/model/model';
+import { AutoSave } from '../app/autosave';
+import { ContextMenu } from './contextmenu';
+import { CameraState } from '../render/camera';
 
 interface ToolEntry {
   tool: Tool;
@@ -63,6 +66,7 @@ export class AppUI {
   private paintTool!: PaintTool;
   private activeMaterial = 'blanco';
   private openMenu: HTMLElement | null = null;
+  private autosave!: AutoSave;
 
   constructor(private readonly root: HTMLElement) {
     this.buildLayout();
@@ -74,6 +78,10 @@ export class AppUI {
     this.editor.setTool(this.tools[0].tool);
     this.editor.startRenderLoop();
     this.startLabelLoop();
+    this.restoreSession();
+    new ContextMenu(this.editor, this.canvasWrap);
+    this.autosave = new AutoSave(() => this.editor.model);
+    this.autosave.start();
     this.refreshPanels();
     window.addEventListener('resize', () => this.viewport.resize());
     // Un primer ajuste tras el diseño inicial.
@@ -435,7 +443,10 @@ export class AppUI {
       this.rectEl.style.height = `${rect.h}px`;
     };
 
-    e.events.onModelChanged = () => this.refreshPanels();
+    e.events.onModelChanged = () => {
+      this.refreshPanels();
+      this.autosave?.touch();
+    };
     e.events.onContextChanged = () => this.refreshPanels();
 
     document.addEventListener('click', () => this.closeMenus());
@@ -541,6 +552,29 @@ export class AppUI {
   }
 
   // -------------------------------------------------------------------------
+  // Sesión
+  // -------------------------------------------------------------------------
+
+  /**
+   * Recupera el trabajo de la sesión anterior, si lo hay. No se pregunta al
+   * usuario: perder lo dibujado al recargar sin querer es mucho peor que
+   * encontrarse el modelo tal y como se dejó, y siempre queda "Archivo ▸ Nuevo".
+   */
+  private restoreSession(): void {
+    const model = AutoSave.restore();
+    if (model && model.stats().edges > 0) {
+      this.editor.replaceModel(model);
+      const cam = AutoSave.restoreCamera<CameraState>();
+      if (cam) this.viewport.cameraCtl.fromJSON(cam);
+      else this.editor.zoomExtents();
+      this.editor.setStatus('Recuperado el modelo de la sesión anterior.');
+    }
+    window.addEventListener('beforeunload', () => {
+      AutoSave.saveCamera(this.viewport.cameraCtl.toJSON());
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // Acciones
   // -------------------------------------------------------------------------
 
@@ -637,7 +671,9 @@ export class AppUI {
 
   private newModel(): void {
     if (!window.confirm('¿Empezar un modelo nuevo? Se perderán los cambios no guardados.')) return;
+    AutoSave.clear();
     this.editor.replaceModel(new Model());
+    this.buildSwatches();
     this.editor.zoomExtents();
   }
 

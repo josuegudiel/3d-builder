@@ -405,6 +405,14 @@ export class SceneBuilder {
 
     // --- Aristas ------------------------------------------------------------
     for (const edge of geo.edges.values()) {
+      if (!options.showEdges) {
+        const a0 = transformPoint(transform, geo.vertexPos(edge.a));
+        const b0 = transformPoint(transform, geo.vertexPos(edge.b));
+        pick.segments.push({ a: a0, b: b0, edgeId: edge.id, path: [...path], active: isActiveContext, topInstance });
+        expandBox(pick.bounds, a0);
+        expandBox(pick.bounds, b0);
+        continue;
+      }
       const soft = edge.soft || edge.hidden;
       if (soft && !options.showHiddenGeometry) {
         // Las aristas suaves no se dibujan, pero sí participan en la selección.
