@@ -10,7 +10,7 @@ No necesita instalación ni servidor: es una aplicación estática.
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # genera dist/ listo para publicar
-npm test         # 352 pruebas del núcleo geométrico
+npm test         # 357 pruebas del núcleo geométrico
 ```
 
 ---
@@ -176,15 +176,23 @@ cara) y se usa en las pruebas después de cada operación.
 ## Pruebas
 
 ```bash
-npm test                                        # 352 pruebas del núcleo
-node tests/e2e/smoke.mjs http://localhost:5173/ # prueba en Chromium
+npm test          # 357 pruebas del núcleo geométrico
+npm run test:e2e  # 168 comprobaciones conduciendo la aplicación en Chromium
+                  # (requiere `npm run dev` en marcha)
 ```
 
 Las pruebas del núcleo cubren la formación de caras, agujeros anidados,
-empujar/tirar en todos sus modos, robustez numérica de milímetros a kilómetros,
-unidades y entrada/salida. La prueba de navegador conduce la aplicación real:
-dibuja con medidas exactas, extruye, deshace, divide caras, agrupa y exporta,
-verificando el volumen del sólido y los invariantes tras cada paso.
+empujar/tirar en todos sus modos, sólidos paramétricos con volúmenes exactos,
+robustez numérica de milímetros a kilómetros, unidades y entrada/salida. Hay
+además pruebas de flujos completos —un cerramiento hueco con muros de 200 mm,
+una escalera de seis peldaños, una mesa con patas como componente compartido— y
+una batería de regresiones con el caso concreto que disparaba cada fallo
+corregido.
+
+Las pruebas de navegador conducen la aplicación real y ejercitan las veintiuna
+herramientas: dibujan con medidas exactas, extruyen, deshacen, dividen caras,
+agrupan, acotan, miden, pintan y exportan, verificando el volumen del sólido y
+los invariantes de la topología tras cada paso.
 
 ---
 

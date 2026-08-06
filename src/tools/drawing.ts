@@ -169,9 +169,17 @@ export class RectangleTool extends DrawingTool {
     const hit = this.updateInference(e);
     this.preview = hit.point;
     if (this.points.length === 1) {
-      this.corners = rectanglePoints(this.frame(), this.points[0], hit.point);
-      const w = distance(this.corners[0], this.corners[1]);
-      const h = distance(this.corners[1], this.corners[2]);
+      const frame = this.frame();
+      this.corners = rectanglePoints(frame, this.points[0], hit.point);
+
+      // Las medidas se sacan proyectando el desplazamiento sobre los ejes del
+      // marco, no de las esquinas: cuando la inferencia engancha el cursor a un
+      // eje, uno de los lados vale cero y el generador devuelve una lista vacía
+      // (no hay rectángulo que dibujar), pero el cuadro de medidas debe seguir
+      // funcionando para poder escribir las dimensiones exactas.
+      const rel = sub(hit.point, this.points[0]);
+      const w = Math.abs(dot(rel, frame.u));
+      const h = Math.abs(dot(rel, frame.v));
       this.editor.showMeasurement(
         'Medidas',
         `${formatLength(w, this.editor.units)} ; ${formatLength(h, this.editor.units)}`,
