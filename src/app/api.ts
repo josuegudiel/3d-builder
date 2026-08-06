@@ -195,6 +195,18 @@ export class Form3DApi {
     return faceArea(this.geometry, id);
   }
 
+  /** Centro geométrico de una cara. */
+  faceCentre(id: Id): Vec3 | null {
+    return faceCentroid(this.geometry, id);
+  }
+
+  /** Áreas de todas las caras del contexto, de menor a mayor. */
+  faceAreas(): number[] {
+    return [...this.geometry.faces.keys()]
+      .map((id) => faceArea(this.geometry, id))
+      .sort((a, b) => a - b);
+  }
+
   /** Cara cuyo centro está más cerca del punto dado. */
   faceNear(point: Vec3): Id | null {
     let best: Id | null = null;

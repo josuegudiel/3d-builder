@@ -178,7 +178,8 @@ cara) y se usa en las pruebas después de cada operación.
 ```bash
 npm test          # 357 pruebas del núcleo geométrico
 npm run test:e2e  # 183 comprobaciones conduciendo la aplicación en Chromium
-                  # (requiere `npm run dev` en marcha)
+                  # (construye, sirve, prueba y apaga el servidor)
+npm run verify    # tipos + núcleo + navegador, todo seguido
 ```
 
 Las pruebas del núcleo cubren la formación de caras, agujeros anidados,

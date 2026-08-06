@@ -145,21 +145,15 @@ async function toScreen(page, p) {
   }, p);
 }
 
-/** Módulos del núcleo que la prueba necesita dentro de la página. */
-const KERNEL_IMPORTS = `
-  import * as tri from '/src/core/topology/triangulate.ts';
-  import * as orient from '/src/core/topology/orient.ts';
-  window.__tri = tri;
-  window.__orient = orient;
-`;
-
-/** Espera a que la aplicación esté montada (protege ante una recarga de Vite). */
+/**
+ * Espera a que la aplicación esté montada.
+ *
+ * Las medidas se consultan por `window.form3d.api`, la interfaz de
+ * automatización que publica la propia aplicación, de modo que la prueba vale
+ * igual con el servidor de desarrollo que con el paquete construido.
+ */
 async function ensureApp(page) {
-  await page.waitForFunction(() => !!window.form3d, null, { timeout: 20000 });
-  if (!(await page.evaluate(() => !!window.__tri))) {
-    await page.addScriptTag({ type: 'module', content: KERNEL_IMPORTS });
-    await page.waitForTimeout(300);
-  }
+  await page.waitForFunction(() => !!window.form3d?.api, null, { timeout: 20000 });
 }
 
 /** Reinicia el modelo y la cámara para que cada bloque parta de lo mismo. */
@@ -239,10 +233,10 @@ async function main() {
   await page.goto(URL_BASE, { waitUntil: 'networkidle' });
   await page.waitForTimeout(900);
 
-  await page.addScriptTag({ type: 'module', content: KERNEL_IMPORTS });
+  await ensureApp(page);
   await page.waitForTimeout(400);
 
-  const booted = await page.evaluate(() => !!window.form3d && !!window.__tri);
+  const booted = await page.evaluate(() => !!window.form3d && !!window.form3d.api);
   if (!booted) {
     console.error('La aplicación no se ha montado o no se han podido importar los módulos.');
     await browser.close();
@@ -493,7 +487,7 @@ async function main() {
     const app = window.form3d;
     const geo = app.editor.geometry;
     const id = [...geo.faces.keys()][0];
-    const c = window.__tri.faceCentroid(geo, id);
+    const c = window.form3d.api.faceCentre(id);
     const s = app.viewport.worldToScreen(c);
     return { world: [c.x, c.y, c.z], screen: [s.x, s.y] };
   });
@@ -515,7 +509,7 @@ async function main() {
   check('aparecen 2 caras (marco + interior)', state.faceCount === 2, `caras=${state.faceCount}`);
   const areas = await page.evaluate(() => {
     const geo = window.form3d.editor.geometry;
-    return [...geo.faces.keys()].map((id) => window.__tri.faceArea(geo, id)).sort((a, b) => a - b);
+    return window.form3d.api.faceAreas();
   });
   const totalArea = areas.reduce((a, b) => a + b, 0);
   check('el área total sigue siendo 16 m²', Math.abs(totalArea - 16) < 1e-9,
@@ -536,7 +530,7 @@ async function main() {
     const app = window.form3d;
     const geo = app.editor.geometry;
     const id = [...geo.faces.keys()][0];
-    const c = window.__tri.faceCentroid(geo, id);
+    const c = window.form3d.api.faceCentre(id);
     const s = app.viewport.worldToScreen(c);
     return [s.x, s.y];
   });
@@ -624,7 +618,7 @@ async function main() {
     const app = window.form3d;
     const geo = app.editor.geometry;
     const id = [...geo.faces.keys()][0];
-    const c = window.__tri.faceCentroid(geo, id);
+    const c = window.form3d.api.faceCentre(id);
     const s = app.viewport.worldToScreen(c);
     return { id, screen: [s.x, s.y] };
   });
