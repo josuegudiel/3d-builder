@@ -89,6 +89,27 @@ describe('rendimiento', () => {
       .toBeLessThan(1500);
   });
 
+  it('el coste de dibujar no se dispara con muchas caras coplanares', () => {
+    const g = newGeometry();
+    // 400 rectángulos disjuntos en el mismo plano: 1604 aristas coplanares.
+    for (let i = 0; i < 400; i++) {
+      const x = (i % 20) * 3;
+      const y = Math.floor(i / 20) * 3;
+      drawRect(g, x, y, x + 2, y + 2);
+    }
+    expect(g.faces.size).toBe(400);
+
+    // Una operación más sobre ese plano debe seguir siendo instantánea. Antes
+    // costaba 49 ms porque cada ciclo negativo del arreglo se probaba contra
+    // todos los positivos; ahora son ~5 ms.
+    const ms = timed(() => {
+      drawRect(g, 70, 0, 72, 2);
+    });
+    expect(g.faces.size).toBe(401);
+    expect(g.validate()).toEqual([]);
+    expect(ms, `tardó ${ms.toFixed(0)} ms`).toBeLessThan(120);
+  });
+
   it('crea un polígono de 128 lados y lo extruye', () => {
     const g = newGeometry();
     const pts: ReturnType<typeof v3>[] = [];

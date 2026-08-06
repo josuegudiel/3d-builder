@@ -228,15 +228,33 @@ export function computeArrangement(
   const positives = cycles.filter((c) => c.area > AREA_EPS);
   const negatives = cycles.filter((c) => c.area < -AREA_EPS);
 
-  const polys = new Map<Cycle, Vec2[]>();
-  for (const c of positives) polys.set(c, cyclePolygon(c, points));
+  // Los candidatos a albergar un agujero se preparan una sola vez: polígono,
+  // caja envolvente y orden por área ascendente. Sin esto, cada ciclo negativo
+  // se probaba contra TODOS los positivos con punto-en-polígono completo, lo
+  // que hacía el arreglo cuadrático en el número de caras del plano.
+  const candidates: HostCandidate[] = positives.map((cycle) => {
+    const poly = cyclePolygon(cycle, points);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of poly) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return { cycle, poly, minX, minY, maxX, maxY };
+  });
+  // Ascendente por área: el primero que contenga el punto es ya el más pequeño.
+  candidates.sort((a, b) => a.cycle.area - b.cycle.area);
 
   const regions: Region[] = positives.map((c) => ({ outer: c, holes: [] }));
   const regionOf = new Map<Cycle, Region>();
   for (const r of regions) regionOf.set(r.outer, r);
 
   for (const neg of negatives) {
-    const host = findHostRegion(neg, positives, polys, points);
+    const host = findHostRegion(neg, candidates, points);
     if (host) regionOf.get(host)!.holes.push(neg);
   }
 
@@ -272,20 +290,32 @@ function signedAreaOfCycle(halves: HalfEdge[], points: Map<Id, Vec2>): number {
   return a * 0.5;
 }
 
+/** Candidato a albergar un agujero, con su polígono y su caja envolvente. */
+interface HostCandidate {
+  cycle: Cycle;
+  poly: Vec2[];
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
 /**
  * Determina de qué región es agujero el ciclo negativo `neg`.
  *
  * Un ciclo negativo delimita el exterior de su componente conexa, de modo que
  * sólo puede ser agujero de una cara perteneciente a OTRA componente. Se elige
  * la cara de menor área que lo contiene, que es la que lo rodea inmediatamente.
+ *
+ * `candidates` llega ordenado por área ascendente, así que basta con devolver
+ * el primero que contenga el punto; la caja envolvente descarta casi todos sin
+ * llegar a la prueba de punto-en-polígono.
  */
 function findHostRegion(
   neg: Cycle,
-  positives: Cycle[],
-  polys: Map<Cycle, Vec2[]>,
+  candidates: readonly HostCandidate[],
   points: Map<Id, Vec2>,
 ): Cycle | null {
-  const candidates = positives.filter((p) => p.comp !== neg.comp);
   if (candidates.length === 0) return null;
 
   // Se prueban varios vértices del ciclo por robustez numérica.
@@ -295,24 +325,23 @@ function findHostRegion(
     if (p) probes.push(p);
     if (probes.length >= 8) break;
   }
+  if (probes.length === 0) return null;
 
-  let best: Cycle | null = null;
-  let bestArea = Infinity;
   for (const cand of candidates) {
-    const poly = polys.get(cand)!;
+    if (cand.cycle.comp === neg.comp) continue;
+    // Rechazo por caja envolvente con el primer punto de sondeo.
+    const p0 = probes[0];
+    if (p0.x < cand.minX || p0.x > cand.maxX || p0.y < cand.minY || p0.y > cand.maxY) continue;
+
     let inside: boolean | null = null;
     for (const probe of probes) {
-      if (pointOnPolygonBoundary2(poly, probe, 1e-9)) continue;
-      inside = pointInPolygon2(poly, probe);
+      if (pointOnPolygonBoundary2(cand.poly, probe, 1e-9)) continue;
+      inside = pointInPolygon2(cand.poly, probe);
       break;
     }
-    if (inside !== true) continue;
-    if (cand.area < bestArea) {
-      bestArea = cand.area;
-      best = cand;
-    }
+    if (inside === true) return cand.cycle;
   }
-  return best;
+  return null;
 }
 
 /**

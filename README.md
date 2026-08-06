@@ -176,8 +176,8 @@ cara) y se usa en las pruebas después de cada operación.
 ## Pruebas
 
 ```bash
-npm test          # 357 pruebas del núcleo geométrico
-npm run test:e2e  # 183 comprobaciones conduciendo la aplicación en Chromium
+npm test          # 358 pruebas del núcleo geométrico
+npm run test:e2e  # 185 comprobaciones conduciendo la aplicación en Chromium
                   # (construye, sirve, prueba y apaga el servidor)
 npm run verify    # tipos + núcleo + navegador, todo seguido
 ```
@@ -247,6 +247,7 @@ Cada llamada que modifica el modelo queda registrada en el historial, así que
   ningún volumen, que es útil para encontrar huecos, pero no es lo mismo que
   los *contornos* de SketchUp: aquéllos son la silueta vista desde la cámara y
   habría que recalcularlos en cada giro.
-- El coste de reconstruir un plano crece con el número de aristas que contiene.
-  Con unos cientos de rectángulos coplanares cada operación cuesta pocos
-  milisegundos; un plano con muchos miles de aristas se nota.
+- El coste de reconstruir un plano crece linealmente con el número de aristas
+  que contiene: con 1600 aristas coplanares una operación cuesta unos 5 ms, y
+  un plano con muchas decenas de miles se notaría. Haría falta un índice
+  espacial para llegar más lejos.

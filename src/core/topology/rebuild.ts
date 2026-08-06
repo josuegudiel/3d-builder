@@ -141,6 +141,12 @@ interface OldFaceInfo {
   id: Id;
   poly2: Vec2[];
   holes2: Vec2[][];
+  /** Caja envolvente 2D y área, para descartar sin probar el polígono. */
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  area: number;
   frontMaterial: string | null;
   backMaterial: string | null;
   hidden: boolean;
@@ -252,10 +258,25 @@ function rebuildPlane(geo: Geometry, plane: Plane, opts: RebuildOptions): Rebuil
     if (!f) continue;
     const poly2 = f.loops[0]?.vertices.map((v) => to2D(basis, geo.vertexPos(v))) ?? [];
     const holes2 = f.loops.slice(1).map((l) => l.vertices.map((v) => to2D(basis, geo.vertexPos(v))));
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of poly2) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
     oldFaces.push({
       id,
       poly2,
       holes2,
+      minX,
+      minY,
+      maxX,
+      maxY,
+      area: Math.abs(polyArea(poly2)),
       frontMaterial: f.frontMaterial,
       backMaterial: f.backMaterial,
       hidden: f.hidden,
@@ -263,6 +284,10 @@ function rebuildPlane(geo: Geometry, plane: Plane, opts: RebuildOptions): Rebuil
       signature: faceSignature(f),
     });
   }
+
+  // Orden ascendente por área: `findContainingOldFace` devuelve la primera que
+  // contiene el punto, que es ya la más pequeña.
+  const oldFacesByArea = [...oldFaces].sort((a, b) => a.area - b.area);
 
   const bySignature = new Map<string, OldFaceInfo>();
   for (const info of oldFaces) {
@@ -317,7 +342,7 @@ function rebuildPlane(geo: Geometry, plane: Plane, opts: RebuildOptions): Rebuil
     const loops = buildLoops(geo, p.region, basis);
     if (!loops) continue;
 
-    const inherited = p.interior ? findContainingOldFace(oldFaces, p.interior) : null;
+    const inherited = p.interior ? findContainingOldFace(oldFacesByArea, p.interior) : null;
     let facePlane = plane;
     let front = inherited?.frontMaterial ?? null;
     let back = inherited?.backMaterial ?? null;
@@ -392,11 +417,18 @@ function cycleToLoop(geo: Geometry, cycle: Cycle): Loop | null {
   return { edges, dirs, vertices };
 }
 
-function findContainingOldFace(oldFaces: OldFaceInfo[], p: Vec2): OldFaceInfo | null {
-  let best: OldFaceInfo | null = null;
-  let bestArea = Infinity;
+/**
+ * Cara antigua más pequeña que contiene el punto, de la que la nueva región
+ * heredará material y orientación.
+ *
+ * `oldFaces` llega ordenado por área ascendente, de modo que se puede devolver
+ * la primera que lo contenga; la caja envolvente descarta el resto sin llegar
+ * a la prueba de punto-en-polígono.
+ */
+function findContainingOldFace(oldFaces: readonly OldFaceInfo[], p: Vec2): OldFaceInfo | null {
   for (const info of oldFaces) {
     if (info.poly2.length < 3) continue;
+    if (p.x < info.minX || p.x > info.maxX || p.y < info.minY || p.y > info.maxY) continue;
     if (!pointInPolygon2(info.poly2, p)) continue;
     let inHole = false;
     for (const hole of info.holes2) {
@@ -406,13 +438,9 @@ function findContainingOldFace(oldFaces: OldFaceInfo[], p: Vec2): OldFaceInfo | 
       }
     }
     if (inHole) continue;
-    const area = Math.abs(polyArea(info.poly2));
-    if (area < bestArea) {
-      bestArea = area;
-      best = info;
-    }
+    return info;
   }
-  return best;
+  return null;
 }
 
 function polyArea(poly: readonly Vec2[]): number {
