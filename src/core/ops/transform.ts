@@ -8,6 +8,7 @@ import { collectCandidatePlanes, collectPlanesFromFaces, rebuildFaces } from '..
 import { weldCoincidentVertices, removeDegenerateEdges } from '../topology/weld';
 import { insertSegment } from '../topology/insert';
 import { orientFacesConsistently } from '../topology/orient';
+import { repairAroundVertices } from '../topology/repair';
 import { planeBasis, to2D } from '../math/plane';
 import earcut from 'earcut';
 
@@ -89,23 +90,30 @@ export function transformEntities(
   }
 
   // --- Actualizar los planos de las caras afectadas -------------------------
+  //
+  // La normal se toma de Newell tal cual: el sentido del bucle es lo que define
+  // la cara frontal. Conservar la orientación anterior dejaba caras invertidas
+  // al aplicar una escala negativa (espejo) o al cruzar una cara con otra.
   for (const fid of touchedFaces) {
     const f = geo.faces.get(fid);
     if (!f) continue;
     const pts = f.loops[0].vertices.map((v) => geo.vertexPos(v));
     const pl = planeFromPolygon(pts);
-    if (pl) f.plane = dot(pl.n, f.plane.n) >= 0 ? pl : { n: mul(pl.n, -1), d: -pl.d };
+    if (pl) f.plane = pl;
   }
 
   // --- Triangular las caras que han dejado de ser planas --------------------
   const repairEdges = repairNonPlanarFaces(geo, touchedFaces);
+
+  // --- Partir las aristas que hayan quedado solapadas -----------------------
+  const overlapRepairs = repairAroundVertices(geo, verts);
 
   // --- Soldar vértices coincidentes y limpiar -------------------------------
   const weld = weldCoincidentVertices(geo, verts);
   removeDegenerateEdges(geo);
 
   // --- Reconstruir ----------------------------------------------------------
-  const liveEdges = [...touchedEdges, ...weld.affectedEdges, ...repairEdges]
+  const liveEdges = [...touchedEdges, ...weld.affectedEdges, ...repairEdges, ...overlapRepairs]
     .filter((e) => geo.edges.has(e));
   const planes: Plane[] = [
     ...planesBefore,

@@ -2,13 +2,14 @@ import { Geometry } from '../model/geometry';
 import { Id, Loop, Face } from '../model/types';
 import { Vec2, Vec3, dot } from '../math/vec';
 import {
-  Plane, planeKey, planeFrom3Points, planeCanonical, planeFlip, planeEquals,
+  Plane, planeKey, planeFrom3Points, planeCanonical, planeFlip, planeContains,
   to2D, PlaneBasis,
 } from '../math/plane';
 import { EPS, PLANE_EPS } from '../math/tolerance';
 import { interiorPoint2, pointInPolygon2 } from '../math/geom';
 import { computeArrangement, Cycle, Region, regionKey } from './arrangement';
 import { reverseLoop } from './loops';
+import { regionKeyOf, keyPoints } from './keys';
 
 export interface RebuildOptions {
   /**
@@ -33,15 +34,42 @@ export interface RebuildResult {
 export function faceRegionKey(geo: Geometry, faceId: Id): string {
   const f = geo.faces.get(faceId);
   if (!f || f.loops.length === 0) return '';
-  const q = (n: number) => (Math.round(n * 1e6) / 1e6).toFixed(6);
-  const parts: string[] = [];
-  for (const v of f.loops[0].vertices) {
-    const vert = geo.vertices.get(v);
-    if (!vert) continue;
-    parts.push(`${q(vert.p.x)},${q(vert.p.y)},${q(vert.p.z)}`);
+  const pointsOf = (loop: Loop) => loop.vertices
+    .map((v) => geo.vertices.get(v)?.p)
+    .filter((p): p is NonNullable<typeof p> => p !== undefined);
+  return regionKeyOf(pointsOf(f.loops[0]), f.loops.slice(1).map(pointsOf));
+}
+
+/**
+ * Descarta las regiones suprimidas cuyos vértices ya no existen.
+ *
+ * Sin esta poda el conjunto crecería sin límite: cada cara borrada dejaría su
+ * huella para siempre, se copiaría en cada instantánea de deshacer y se
+ * escribiría en cada archivo guardado.
+ */
+export function pruneSuppressedRegions(geo: Geometry): number {
+  if (geo.suppressedRegions.size === 0) return 0;
+  let removed = 0;
+  for (const key of [...geo.suppressedRegions]) {
+    const points = keyPoints(key);
+    if (points.length === 0) {
+      geo.suppressedRegions.delete(key);
+      removed++;
+      continue;
+    }
+    let alive = true;
+    for (const [x, y, z] of points) {
+      if (geo.findVertexAt({ x, y, z }, 1e-5) === null) {
+        alive = false;
+        break;
+      }
+    }
+    if (!alive) {
+      geo.suppressedRegions.delete(key);
+      removed++;
+    }
   }
-  parts.sort();
-  return parts.join(';');
+  return removed;
 }
 
 /**
@@ -140,6 +168,8 @@ export function rebuildFaces(
   const removed: Id[] = [];
   const kept: Id[] = [];
 
+  pruneSuppressedRegions(geo);
+
   const seen = new Set<string>();
   for (const planeIn of planes) {
     const plane = planeCanonical(planeIn);
@@ -158,9 +188,25 @@ export function rebuildFaces(
 
 function rebuildPlane(geo: Geometry, plane: Plane, opts: RebuildOptions): RebuildResult {
   const edgeIds = geo.edgesOnPlane(plane, PLANE_EPS);
+
+  // Una cara pertenece al plano si TODOS sus vértices están en él. Es el mismo
+  // criterio que usa `edgesOnPlane`, de modo que nunca puede ocurrir que las
+  // aristas de una cara entren en el arreglo y la cara se quede fuera de la
+  // lista de existentes: eso dejaría dos caras coplanares superpuestas.
   const existing: Id[] = [];
   for (const f of geo.faces.values()) {
-    if (planeEquals(f.plane, plane, false, PLANE_EPS)) existing.push(f.id);
+    let onPlane = true;
+    for (const loop of f.loops) {
+      for (const v of loop.vertices) {
+        const p = geo.vertices.get(v);
+        if (!p || !planeContains(plane, p.p, PLANE_EPS)) {
+          onPlane = false;
+          break;
+        }
+      }
+      if (!onPlane) break;
+    }
+    if (onPlane) existing.push(f.id);
   }
 
   if (edgeIds.length === 0) {

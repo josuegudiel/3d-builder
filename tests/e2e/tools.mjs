@@ -145,8 +145,26 @@ async function toScreen(page, p) {
   }, p);
 }
 
+/** Módulos del núcleo que la prueba necesita dentro de la página. */
+const KERNEL_IMPORTS = `
+  import * as tri from '/src/core/topology/triangulate.ts';
+  import * as orient from '/src/core/topology/orient.ts';
+  window.__tri = tri;
+  window.__orient = orient;
+`;
+
+/** Espera a que la aplicación esté montada (protege ante una recarga de Vite). */
+async function ensureApp(page) {
+  await page.waitForFunction(() => !!window.form3d, null, { timeout: 20000 });
+  if (!(await page.evaluate(() => !!window.__tri))) {
+    await page.addScriptTag({ type: 'module', content: KERNEL_IMPORTS });
+    await page.waitForTimeout(300);
+  }
+}
+
 /** Reinicia el modelo y la cámara para que cada bloque parta de lo mismo. */
 async function resetModel(page) {
+  await ensureApp(page);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(60);
   await page.evaluate(() => {
@@ -163,8 +181,15 @@ async function resetModel(page) {
   await focusCanvas(page);
 }
 
-/** Dibuja un rectángulo con medidas exactas partiendo de (x0,y0) en pantalla. */
-async function drawRectangle(page, text, x0 = 620, y0 = 520, x1 = 800, y1 = 430) {
+/**
+ * Dibuja un rectángulo con medidas exactas partiendo de (x0,y0) en pantalla.
+ *
+ * El arrastre por defecto es HORIZONTAL en pantalla a propósito: en la vista
+ * isométrica las líneas de inferencia de los ejes rojo/verde salen del primer
+ * vértice a ±37° y la del azul es vertical, así que un arrastre horizontal es
+ * el que más lejos queda de todas ellas.
+ */
+async function drawRectangle(page, text, x0 = 620, y0 = 520, x1 = 800, y1 = 520) {
   await page.keyboard.press('r');
   await page.waitForTimeout(80);
   await clickCanvas(page, x0, y0);
@@ -289,6 +314,33 @@ async function main() {
   check('la geometría no se ha duplicado al mover',
     state.faceCount === 1 && state.edgeCount === 4,
     `caras=${state.faceCount} aristas=${state.edgeCount}`);
+  check('la selección se conserva tras mover',
+    state.selection.faces === 1 && state.selection.edges === 4,
+    `caras=${state.selection.faces} aristas=${state.selection.edges}`);
+
+  // Desplazamiento por vector explícito "1000;500;250".
+  const beforeVector = state.bounds;
+  await focusCanvas(page);
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(150);
+  const v2 = await page.evaluate(() => {
+    const app = window.form3d;
+    let best = null;
+    for (const v of app.editor.geometry.vertices.values()) {
+      if (!best || v.p.x < best.x) best = v.p;
+    }
+    const s = app.viewport.worldToScreen(best);
+    return [s.x, s.y];
+  });
+  await clickCanvas(page, v2[0], v2[1]);
+  await moveCanvas(page, v2[0] + 70, v2[1]);
+  r = await typeMeasurement(page, '1000;500;250');
+  check('Mover acepta un vector "1000;500;250"', r.accepted, r.reason);
+  state = await modelState(page);
+  const dv = [0, 1, 2].map((i) => state.bounds.min[i] - beforeVector.min[i]);
+  check('el vector desplaza exactamente (1, 0.5, 0.25) m',
+    Math.abs(dv[0] - 1) < 1e-9 && Math.abs(dv[1] - 0.5) < 1e-9 && Math.abs(dv[2] - 0.25) < 1e-9,
+    fmt3(dv));
   await shot(page, '01-mover');
   await endBlock(state);
 
@@ -550,6 +602,14 @@ async function main() {
   check('desaparecen las dos caras adyacentes', gone.faces.length === 0,
     `siguen presentes: ${gone.faces.join(', ')}`);
   check('quedan 4 caras', state.faceCount === 4, `caras=${state.faceCount}`);
+
+  await focusCanvas(page);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(300);
+  state = await modelState(page);
+  check('deshacer devuelve la caja completa',
+    state.faceCount === 6 && state.edgeCount === 12,
+    `caras=${state.faceCount} aristas=${state.edgeCount}`);
   await shot(page, '06-borrar');
   await endBlock(state);
 
@@ -677,6 +737,18 @@ async function main() {
   });
   check('la guía de línea mide 2 m', guideOk.ok && Math.abs(guideOk.len - 2) < 1e-9,
     guideOk.len === null ? 'no hay guía de línea' : `${fmt(guideOk.len)} m`);
+
+  // Segunda guía con longitud escrita en el cuadro de medidas.
+  await clickCanvas(page, tape.sa[0], tape.sa[1]);
+  await moveCanvas(page, tape.sb[0], tape.sb[1]);
+  r = await typeMeasurement(page, '3000');
+  check('el Metro acepta una longitud escrita ("3000")', r.accepted, r.reason);
+  const guideLens = await page.evaluate(() => [...window.form3d.editor.model.guides.values()]
+    .filter((g) => g.kind === 'line')
+    .map((g) => Math.hypot(g.b.x - g.a.x, g.b.y - g.a.y, g.b.z - g.a.z)));
+  check('la nueva guía mide exactamente 3 m',
+    guideLens.some((l) => Math.abs(l - 3) < 1e-9), guideLens.map(fmt).join(', '));
+  state = await modelState(page);
   await shot(page, '09-metro');
   await endBlock(state);
 
@@ -691,11 +763,14 @@ async function main() {
   await clickCanvas(page, 560, 520);
   await clickCanvas(page, 860, 520);
   await moveCanvas(page, 710, 460);
+  const segs = await typeMeasurement(page, '12s');
+  check('Arco acepta el número de tramos "12s"', segs.accepted, segs.reason);
+  await moveCanvas(page, 710, 462);
   r = await typeMeasurement(page, '500');
   check('Arco acepta la comba "500"', r.accepted, r.reason);
 
   state = await modelState(page);
-  check('el arco tiene 12 aristas (12 tramos por defecto)',
+  check('el arco tiene 12 aristas (12 tramos)',
     state.edgeCount === 12, `aristas=${state.edgeCount}`);
   check('el arco tiene 13 vértices', state.vertexCount === 13, `vértices=${state.vertexCount}`);
   check('un arco abierto no crea cara', state.faceCount === 0, `caras=${state.faceCount}`);
@@ -811,7 +886,7 @@ async function main() {
   await page.keyboard.press('r');
   await page.waitForTimeout(100);
   await clickCanvas(page, insidePt[0], insidePt[1]);
-  await moveCanvas(page, insidePt[0] + 60, insidePt[1] - 40);
+  await moveCanvas(page, insidePt[0] + 80, insidePt[1]);
   r = await typeMeasurement(page, '1000;1000');
   check('se dibuja un rectángulo dentro del grupo', r.accepted, r.reason);
 
@@ -905,6 +980,47 @@ async function main() {
   await endBlock(state);
 
   // ==========================================================================
+  beginBlock('12b. RECTÁNGULO apoyado en una inferencia de eje');
+  // ==========================================================================
+  await resetModel(page);
+  r = await drawRectangle(page, '2000;2000');
+  check('rectángulo de partida', r.accepted, r.reason);
+  const cornerX = await page.evaluate(() => {
+    const app = window.form3d;
+    let best = null;
+    for (const v of app.editor.geometry.vertices.values()) {
+      if (!best || v.p.x > best.x || (v.p.x === best.x && v.p.y > best.y)) best = v.p;
+    }
+    const s = app.viewport.worldToScreen(best);
+    return { world: [best.x, best.y, best.z], screen: [s.x, s.y] };
+  });
+
+  await page.keyboard.press('r');
+  await page.waitForTimeout(100);
+  await clickCanvas(page, cornerX.screen[0], cornerX.screen[1]);
+  const onRedAxis = await toScreen(page, [
+    cornerX.world[0] + 2, cornerX.world[1], cornerX.world[2],
+  ]);
+  const erroresAntes = consoleErrors.length;
+  await moveCanvas(page, onRedAxis[0], onRedAxis[1]);
+  await page.waitForTimeout(150);
+  const tipRect = await page.evaluate(() => document.querySelector('.inference-tip')?.textContent);
+  check('el cursor está sobre la inferencia del eje rojo', tipRect === 'En el eje rojo',
+    JSON.stringify(tipRect));
+  const rectCrash = consoleErrors.slice(erroresAntes);
+  check('mover el rectángulo sobre el eje rojo no lanza excepciones',
+    rectCrash.length === 0, rectCrash.slice(0, 2).join(' | '));
+  check('el cuadro de medidas queda utilizable sobre el eje',
+    !(await page.locator('.vcb input').isDisabled()));
+
+  r = await typeMeasurement(page, '2000;2000');
+  check('se puede escribir la medida exacta apoyado en el eje', r.accepted, r.reason);
+  state = await modelState(page);
+  check('se crea el segundo rectángulo', state.faceCount === 2, `caras=${state.faceCount}`);
+  await shot(page, '13b-rect-eje');
+  await endBlock(state);
+
+  // ==========================================================================
   beginBlock('13. DESHACER PROFUNDO: 10 operaciones y 10 deshacer');
   // ==========================================================================
   await resetModel(page);
@@ -919,7 +1035,7 @@ async function main() {
     await page.keyboard.press('r');
     await page.waitForTimeout(70);
     await clickCanvas(page, x, y);
-    await moveCanvas(page, x + 40, y - 30);
+    await moveCanvas(page, x + 70, y);
     const res = await typeMeasurement(page, '400;400');
     if (res.accepted) drawn++;
     else note(`operación ${i + 1} rechazada: ${res.reason}`);

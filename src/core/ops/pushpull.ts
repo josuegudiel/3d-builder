@@ -8,6 +8,8 @@ import { collectCandidatePlanes, rebuildFaces, collectPlanesFromFaces } from '..
 import { weldCoincidentVertices, removeDegenerateEdges } from '../topology/weld';
 import { faceCentroid, faceArea } from '../topology/triangulate';
 import { orientFacesConsistently } from '../topology/orient';
+import { repairAroundVertices } from '../topology/repair';
+import { regionKeyOf } from '../topology/keys';
 
 export interface PushPullOptions {
   /**
@@ -101,6 +103,11 @@ function slideFace(geo: Geometry, faceId: Id, offset: Vec3): PushPullResult {
   const face = geo.faces.get(faceId)!;
   const verts = geo.faceVertices(faceId);
 
+  // Anillos de los agujeros ANTES de mover, para poder retirar después la tapa
+  // que el reconstructor crearía sobre ellos en la posición nueva.
+  const holeRingsBefore: Vec3[][] = face.loops.slice(1)
+    .map((l) => l.vertices.map((v) => geo.vertexPos(v)));
+
   // Planos implicados ANTES de mover nada.
   const planesBefore: Plane[] = [];
   const touchedFaces = new Set<Id>();
@@ -118,16 +125,23 @@ function slideFace(geo: Geometry, faceId: Id, offset: Vec3): PushPullResult {
     geo.moveVertex(v, addScaled(geo.vertexPos(v), offset, 1));
   }
 
-  // Actualizar los planos de las caras afectadas (conservando su orientación).
+  // Actualizar los planos de las caras afectadas.
+  //
+  // Se toma la normal de Newell del contorno TAL CUAL, sin conservar la
+  // orientación anterior: el sentido de recorrido del bucle es lo que define
+  // cuál es la cara frontal. Conservar la normal vieja dejaba caras del revés
+  // al empujar una tapa más allá del sólido o al aplicar una escala negativa.
   for (const fid of touchedFaces) {
     const f = geo.faces.get(fid);
     if (!f) continue;
     const pts = f.loops[0].vertices.map((vv) => geo.vertexPos(vv));
     const pl = planeFromPolygon(pts);
-    if (pl) {
-      f.plane = dot(pl.n, f.plane.n) >= 0 ? pl : { n: mul(pl.n, -1), d: -pl.d };
-    }
+    if (pl) f.plane = pl;
   }
+
+  // Al atravesar geometría existente pueden quedar aristas solapadas; hay que
+  // partirlas antes de reconstruir o el subdivisor planar perdería el plano.
+  const repaired = repairAroundVertices(geo, verts);
 
   // Soldar vértices que hayan quedado superpuestos (empuje hasta el fondo).
   const weld = weldCoincidentVertices(geo, verts);
@@ -135,13 +149,21 @@ function slideFace(geo: Geometry, faceId: Id, offset: Vec3): PushPullResult {
 
   // Reconstruir.
   const planes: Plane[] = [...planesBefore];
-  const liveEdges = [...touchedEdges, ...weld.affectedEdges].filter((e) => geo.edges.has(e));
+  const liveEdges = [...touchedEdges, ...weld.affectedEdges, ...repaired]
+    .filter((e) => geo.edges.has(e));
   planes.push(...collectCandidatePlanes(geo, liveEdges));
   planes.push(...collectPlanesFromFaces(geo, [...geo.faces.keys()].filter((f) => touchedFaces.has(f))));
 
   const before = new Set(geo.faces.keys());
   const rb = rebuildFaces(geo, planes);
   const removed = [...before].filter((f) => !geo.faces.has(f));
+
+  // Los agujeros deben seguir atravesando el volumen tras el desplazamiento.
+  const movedHoleRings = holeRingsBefore.map((ring) => ring.map((p) => addScaled(p, offset, 1)));
+  const capPlane = movedHoleRings.length > 0
+    ? planeCanonical(planeFromPointNormal(movedHoleRings[0][0], face.plane.n))
+    : null;
+  if (capPlane) removeHoleCaps(geo, capPlane, holeRingsBefore, movedHoleRings);
 
   // Cara resultante: la que está en la posición desplazada.
   const survived = geo.faces.has(faceId) ? faceId : findFaceAt(geo, face.plane, rb.created);
@@ -207,25 +229,20 @@ function extrudeFace(geo: Geometry, faceId: Id, offset: Vec3, keepOriginal: bool
   const rb = rebuildFaces(geo, planes, { newEdges: new Set(affected) });
 
   // Si la cara original quedó encerrada entre dos volúmenes, se elimina.
-  let removedOriginal = false;
+  //
+  // Hay que identificarla por su CONTORNO, no por ser la mayor del plano: en un
+  // plano con varias caras coplanares (una tapa dividida en dos, por ejemplo)
+  // buscar la de mayor área borraba una cara ajena a la operación.
   if (enclosed && !keepOriginal) {
-    const inner = findFaceAt(geo, originalPlane, [...geo.faces.keys()]);
-    if (inner !== null) {
-      geo.removeFace(inner);
-      removedOriginal = true;
-    }
+    const inner = findFaceWithBoundary(geo, originalPlane, rings[0])
+      ?? findFaceAt(geo, originalPlane, [...geo.faces.keys()], rings[0]);
+    if (inner !== null) geo.removeFace(inner);
   }
 
   // Los agujeros deben atravesar el volumen: se retira la cara que el
   // reconstructor crea tapando cada agujero en el plano desplazado, igual que
   // hace SketchUp al extruir una cara con huecos.
-  for (let i = 1; i < movedRings.length; i++) {
-    const capOverHole = findFaceWithBoundary(geo, capPlane, movedRings[i]);
-    if (capOverHole !== null) {
-      geo.suppressedRegions.add(pointSetKey(movedRings[i]));
-      geo.removeFace(capOverHole);
-    }
-  }
+  removeHoleCaps(geo, capPlane, [], movedRings.slice(1));
 
   const removed = [...before].filter((f) => !geo.faces.has(f));
   const cap = findFaceAt(geo, capPlane, [...geo.faces.keys()], movedRings[0]);
@@ -240,7 +257,7 @@ function extrudeFace(geo: Geometry, faceId: Id, offset: Vec3, keepOriginal: bool
     faceId: cap,
     mode: 'extrude',
     createdFaces: rb.created.filter((f) => geo.faces.has(f)),
-    removedFaces: removed.concat(removedOriginal ? [] : []),
+    removedFaces: removed,
     distance: Math.hypot(offset.x, offset.y, offset.z),
   };
 }
@@ -293,17 +310,29 @@ function findFaceAt(
 }
 
 /**
- * Clave estable de un conjunto de puntos, con el mismo formato que usa el
- * reconstructor para las regiones suprimidas.
+ * Retira las caras que el reconstructor haya creado tapando un agujero, y
+ * registra la región para que no vuelvan a aparecer. Si el agujero se ha
+ * movido, se descarta también la clave de la posición anterior.
  */
-function pointSetKey(points: readonly Vec3[]): string {
-  const q = (n: number) => (Math.round(n * 1e6) / 1e6).toFixed(6);
-  return points.map((p) => `${q(p.x)},${q(p.y)},${q(p.z)}`).sort().join(';');
+function removeHoleCaps(
+  geo: Geometry,
+  capPlane: Plane,
+  previousRings: readonly (readonly Vec3[])[],
+  rings: readonly (readonly Vec3[])[],
+): void {
+  for (const old of previousRings) {
+    geo.suppressedRegions.delete(regionKeyOf(old));
+  }
+  for (const ring of rings) {
+    geo.suppressedRegions.add(regionKeyOf(ring));
+    const cap = findFaceWithBoundary(geo, capPlane, ring);
+    if (cap !== null) geo.removeFace(cap);
+  }
 }
 
 /** Cara del plano indicado cuyo contorno exterior coincide con `boundary`. */
 function findFaceWithBoundary(geo: Geometry, plane: Plane, boundary: readonly Vec3[]): Id | null {
-  const target = pointSetKey(boundary);
+  const target = regionKeyOf(boundary);
   const canon = planeCanonical(plane);
   for (const f of geo.faces.values()) {
     const c = planeCanonical(f.plane);
@@ -311,7 +340,7 @@ function findFaceWithBoundary(geo: Geometry, plane: Plane, boundary: readonly Ve
     if (Math.abs(c.d - canon.d) > 1e-5) continue;
     const pts = f.loops[0].vertices.map((v) => geo.vertexPos(v));
     if (pts.length !== boundary.length) continue;
-    if (pointSetKey(pts) === target) return f.id;
+    if (regionKeyOf(pts) === target) return f.id;
   }
   return null;
 }

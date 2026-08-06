@@ -40,6 +40,9 @@ export function weldCoincidentVertices(
       mergeVertex(geo, w, v, affected);
       result.merged++;
     }
+    // El destino puede haberse quedado sin aristas si todo lo que lo tocaba era
+    // degenerado; sólo entonces se retira, y siempre al final de la fusión.
+    geo.removeVertexIfIsolated(v);
   }
 
   for (const e of affected) {
@@ -70,15 +73,17 @@ function mergeVertex(geo: Geometry, from: Id, to: Id, affected: Set<Id>): void {
     const other = e.a === from ? e.b : e.a;
 
     if (other === to) {
-      // La arista se vuelve degenerada.
-      geo.removeEdge(eid);
+      // La arista se vuelve degenerada. Se retira SIN tocar los vértices: si se
+      // permitiera limpiar los aislados, `to` podría desaparecer y las aristas
+      // que quedan por reasignar apuntarían a un vértice inexistente.
+      geo.removeEdgeKeepVertices(eid);
       continue;
     }
 
     const duplicate = geo.findEdge(to, other);
     if (duplicate !== null) {
       // Ya existe una arista equivalente: se conserva la antigua.
-      geo.removeEdge(eid);
+      geo.removeEdgeKeepVertices(eid);
       affected.add(duplicate);
       continue;
     }

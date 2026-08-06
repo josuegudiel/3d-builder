@@ -4,6 +4,7 @@ import { Vec2 } from '../math/vec';
 import { Plane, PlaneBasis, planeBasis, planeCanonical, to2D } from '../math/plane';
 import { AREA_EPS } from '../math/tolerance';
 import { pointInPolygon2, pointOnPolygonBoundary2 } from '../math/geom';
+import { regionKeyOf } from './keys';
 
 /**
  * Semiarista dirigida del grafo planar.
@@ -44,27 +45,52 @@ export interface ArrangementResult {
   points: Map<Id, Vec2>;
 }
 
-/** Estructura union-find para calcular componentes conexas. */
+/**
+ * Estructura union-find para calcular componentes conexas.
+ *
+ * `find` es ITERATIVO a propósito: con la versión recursiva, una polilínea de
+ * unos 20 000 vértices coplanares desbordaba la pila y abortaba la
+ * reconstrucción de caras del plano entero. La unión por tamaño mantiene los
+ * árboles planos incluso sin compresión.
+ */
 class DSU {
   private parent = new Map<Id, Id>();
+  private size = new Map<Id, number>();
 
   find(x: Id): Id {
-    let p = this.parent.get(x);
-    if (p === undefined) {
-      this.parent.set(x, x);
-      return x;
+    let root = x;
+    for (;;) {
+      const p = this.parent.get(root);
+      if (p === undefined) {
+        this.parent.set(root, root);
+        this.size.set(root, 1);
+        break;
+      }
+      if (p === root) break;
+      root = p;
     }
-    if (p !== x) {
-      p = this.find(p);
-      this.parent.set(x, p);
+    // Compresión de camino, también iterativa.
+    let cur = x;
+    while (cur !== root) {
+      const next = this.parent.get(cur) ?? root;
+      this.parent.set(cur, root);
+      if (next === cur) break;
+      cur = next;
     }
-    return p;
+    return root;
   }
 
   union(a: Id, b: Id): void {
-    const ra = this.find(a);
-    const rb = this.find(b);
-    if (ra !== rb) this.parent.set(ra, rb);
+    let ra = this.find(a);
+    let rb = this.find(b);
+    if (ra === rb) return;
+    if ((this.size.get(ra) ?? 1) < (this.size.get(rb) ?? 1)) {
+      const t = ra;
+      ra = rb;
+      rb = t;
+    }
+    this.parent.set(rb, ra);
+    this.size.set(ra, (this.size.get(ra) ?? 1) + (this.size.get(rb) ?? 1));
   }
 }
 
@@ -291,18 +317,18 @@ function findHostRegion(
 
 /**
  * Clave estable de una región, usada para recordar caras borradas a mano.
- * Se construye con las posiciones cuantizadas de los vértices del contorno
- * exterior, ordenadas, de modo que no dependa del punto de inicio ni del
- * sentido del recorrido.
+ *
+ * Incluye los agujeros: sin ellos, borrar la cara de un anillo suprimiría
+ * también el disco completo que debe aparecer al eliminar el hueco.
  */
 export function regionKey(geo: Geometry, region: Region): string {
-  const q = (n: number) => (Math.round(n * 1e6) / 1e6).toFixed(6);
-  const parts: string[] = [];
-  for (const h of region.outer.halves) {
-    const p = geo.vertices.get(h.from);
-    if (!p) continue;
-    parts.push(`${q(p.p.x)},${q(p.p.y)},${q(p.p.z)}`);
-  }
-  parts.sort();
-  return parts.join(';');
+  const pointsOf = (cycle: Cycle) => {
+    const pts = [];
+    for (const h of cycle.halves) {
+      const v = geo.vertices.get(h.from);
+      if (v) pts.push(v.p);
+    }
+    return pts;
+  };
+  return regionKeyOf(pointsOf(region.outer), region.holes.map(pointsOf));
 }

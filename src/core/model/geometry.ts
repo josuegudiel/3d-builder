@@ -265,6 +265,22 @@ export class Geometry {
   removeEdge(id: Id): void {
     const e = this.edges.get(id);
     if (!e) return;
+    const a = e.a;
+    const b = e.b;
+    this.removeEdgeKeepVertices(id);
+    this.removeVertexIfIsolated(a);
+    this.removeVertexIfIsolated(b);
+  }
+
+  /**
+   * Elimina una arista y sus caras, pero CONSERVA los vértices aunque queden
+   * sueltos. Lo necesita la soldadura: si al fusionar dos vértices se borrase
+   * el vértice destino por quedarse momentáneamente aislado, las aristas que
+   * aún faltan por reasignar apuntarían a un vértice inexistente.
+   */
+  removeEdgeKeepVertices(id: Id): void {
+    const e = this.edges.get(id);
+    if (!e) return;
     for (const f of [...(this.edgeFaces.get(id) ?? [])]) {
       this.removeFace(f);
     }
@@ -272,8 +288,6 @@ export class Geometry {
     this.vertexEdges.get(e.b)?.delete(id);
     this.edges.delete(id);
     this.edgeFaces.delete(id);
-    this.removeVertexIfIsolated(e.a);
-    this.removeVertexIfIsolated(e.b);
   }
 
   // -------------------------------------------------------------------------
@@ -415,11 +429,9 @@ export class Geometry {
   facesOnPlane(plane: Plane, eps = EPS): Id[] {
     const out: Id[] = [];
     for (const f of this.faces.values()) {
-      const same =
-        Math.abs(Math.abs(f.plane.n.x * plane.n.x + f.plane.n.y * plane.n.y + f.plane.n.z * plane.n.z) - 1) < 1e-7 &&
-        Math.abs(Math.abs(f.plane.d) - Math.abs(plane.d)) < eps;
-      if (!same) continue;
-      // Verificación robusta: todos los vértices deben pertenecer al plano.
+      // La comprobación definitiva es que todos los vértices pertenezcan al
+      // plano; comparar sólo normal y distancia daría por iguales dos planos
+      // paralelos simétricos respecto del origen (z = +5 y z = −5).
       let ok = true;
       for (const v of this.faceVertices(f.id)) {
         if (!planeContains(plane, this.vertexPos(v), eps)) {

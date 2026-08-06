@@ -58,10 +58,12 @@ export function orientFacesConsistently(geo: Geometry, seeds: Iterable<Id>): Ori
     // --- Recorrido en anchura por la componente -----------------------------
     const component: Id[] = [];
     const queue: Id[] = [seed];
+    let head = 0; // índice en vez de shift(): shift() es O(n) y hacía el
+                  // recorrido cuadrático en componentes grandes.
     globalVisited.add(seed);
 
-    while (queue.length > 0) {
-      const fid = queue.shift()!;
+    while (head < queue.length) {
+      const fid = queue[head++];
       component.push(fid);
 
       for (const eid of geo.faceEdges(fid)) {
@@ -170,9 +172,10 @@ export function faceComponent(geo: Geometry, seed: Id): Id[] {
   if (!geo.faces.has(seed)) return [];
   const seen = new Set<Id>([seed]);
   const queue = [seed];
+  let head = 0;
   const out: Id[] = [];
-  while (queue.length > 0) {
-    const fid = queue.shift()!;
+  while (head < queue.length) {
+    const fid = queue[head++];
     out.push(fid);
     for (const eid of geo.faceEdges(fid)) {
       for (const other of geo.edgeFaces.get(eid) ?? []) {
