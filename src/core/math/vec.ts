@@ -66,8 +66,16 @@ export function lengthSq(a: Vec3): number {
   return a.x * a.x + a.y * a.y + a.z * a.z;
 }
 
+/**
+ * Módulo del vector. Usa la ruta rápida (raíz de la suma de cuadrados) y sólo
+ * recurre a `Math.hypot` cuando ésta desbordaría o se anularía por
+ * subdesbordamiento, lo que ocurre con componentes por debajo de ~1e-154 o por
+ * encima de ~1e154.
+ */
 export function length(a: Vec3): number {
-  return Math.sqrt(lengthSq(a));
+  const l2 = lengthSq(a);
+  if (l2 > 0 && Number.isFinite(l2)) return Math.sqrt(l2);
+  return Math.hypot(a.x, a.y, a.z);
 }
 
 export function distanceSq(a: Vec3, b: Vec3): number {
@@ -81,12 +89,25 @@ export function distance(a: Vec3, b: Vec3): number {
   return Math.sqrt(distanceSq(a, b));
 }
 
-/** Normaliza; devuelve el vector cero si la longitud es despreciable. */
+/**
+ * Normaliza; devuelve el vector cero sólo si el vector es exactamente nulo.
+ * Los vectores extremadamente pequeños o grandes se reescalan antes de dividir
+ * para no perder la dirección por subdesbordamiento.
+ */
 export function normalize(a: Vec3): Vec3 {
   const l = length(a);
-  if (l < 1e-300) return ZERO3;
-  const inv = 1 / l;
-  return { x: a.x * inv, y: a.y * inv, z: a.z * inv };
+  if (l > 0 && Number.isFinite(l) && l >= 1e-300) {
+    const inv = 1 / l;
+    return { x: a.x * inv, y: a.y * inv, z: a.z * inv };
+  }
+  const m = Math.max(Math.abs(a.x), Math.abs(a.y), Math.abs(a.z));
+  if (m === 0 || !Number.isFinite(m)) return ZERO3;
+  const x = a.x / m;
+  const y = a.y / m;
+  const z = a.z / m;
+  const l2 = Math.hypot(x, y, z);
+  if (l2 === 0) return ZERO3;
+  return { x: x / l2, y: y / l2, z: z / l2 };
 }
 
 /** Normaliza o devuelve `fallback` si el vector es degenerado. */

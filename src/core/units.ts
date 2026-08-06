@@ -196,6 +196,8 @@ export function parseLength(input: string, opts: ParseLengthOptions): number | n
   } else if (s.startsWith('+')) {
     s = s.slice(1).trim();
   }
+  // Tras quitar el signo no puede quedar otro: "--3" o "+-3" son inválidos.
+  if (/^[+\-–]/.test(s)) return null;
 
   const meters = parseUnsignedLength(s, opts.defaultUnit);
   if (meters === null) return null;
@@ -226,7 +228,9 @@ function parseUnsignedLength(s: string, defaultUnit: LengthUnit): number | null 
   }
 
   // --- Sufijo de unidad explícito al final ---
-  const suffixMatch = /^(.*?)\s*([a-zA-Zµ"'”’″′]+)$/.exec(s);
+  // La clase incluye vocales acentuadas para que "centímetros" o "kilómetros"
+  // (declarados en UNIT_ALIASES) se capturen como un único token.
+  const suffixMatch = /^(.*?)\s*([a-zA-ZµáéíóúüÁÉÍÓÚÜ"'”’″′]+)$/.exec(s);
   if (suffixMatch) {
     const unit = matchUnit(suffixMatch[2]);
     if (unit) {
@@ -285,7 +289,8 @@ function splitOnListComma(s: string): string[] {
     // lleva unidad, es coma decimal.
     const [a, b] = s.split(',');
     const hasUnit = /[a-zA-Z"'”’″′]/.test(s);
-    if (hasUnit && /^\s*\d{1,3}\s*$/.test(b) && !/[a-zA-Z"'”’″′]/.test(a)) {
+    // El lado derecho lleva los decimales y, opcionalmente, la unidad ("5m").
+    if (hasUnit && /^\s*\d{1,2}\s*[a-zA-Z"'”’″′]*\s*$/.test(b) && !/[a-zA-Z"'”’″′]/.test(a)) {
       return [s]; // "1,5m" → coma decimal
     }
     return [a, b];
@@ -355,7 +360,8 @@ function formatFractionalInches(inches: number, den: number, showUnit: boolean):
   if (f.num === 0) s = `${f.whole}`;
   else if (f.whole === 0) s = `${f.num}/${f.den}`;
   else s = `${f.whole} ${f.num}/${f.den}`;
-  if (neg) s = `-${s}`;
+  // No mostrar "-0": si al redondear queda cero, el signo sobra.
+  if (neg && !(f.whole === 0 && f.num === 0)) s = `-${s}`;
   return showUnit ? `${s}"` : s;
 }
 
@@ -384,7 +390,8 @@ export function formatLength(meters: number, u: UnitSettings = DEFAULT_UNITS): s
         parts.push(formatFractionalInches(inches, den, true));
       }
       const s = parts.join(' ');
-      return neg ? `-${s}` : s;
+      // Igual que arriba: -0.0001 m redondea a 0" y no debe salir como -0".
+      return neg && roundedSixteenths !== 0 ? `-${s}` : s;
     }
     case 'engineering': {
       const feet = meters / METERS_PER.ft;

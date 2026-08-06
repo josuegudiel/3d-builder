@@ -37,6 +37,7 @@ describe('extruir (push/pull)', () => {
     expect(g.vertices.size).toBe(8);
     closeTo(totalArea(g), 2 * (4 * 3) + 2 * (4 * 2) + 2 * (3 * 2));
     closeTo(meshVolume(g), 24);
+    expect(isSolid(g, g.faces.keys())).toBe(true);
     expectValid(g);
   });
 

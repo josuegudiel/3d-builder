@@ -49,7 +49,7 @@ export function planeFromPolygon(pts: readonly Vec3[]): Plane | null {
   return { n: nn, d: dot(nn, c) };
 }
 
-/** Normal de Newell (sin normalizar): su módulo es 2× el área del polígono. */
+/** Normal de Newell (sin normalizar): su módulo es el área del polígono. */
 export function newellNormal(pts: readonly Vec3[]): Vec3 {
   let nx = 0, ny = 0, nz = 0;
   const m = pts.length;
@@ -172,9 +172,11 @@ export function planePlaneIntersect(a: Plane, b: Plane): { p: Vec3; dir: Vec3 } 
   const dir = cross(a.n, b.n);
   const dl2 = lengthSq(dir);
   if (dl2 <= 1e-18) return null;
-  // Punto de la recta más cercano al origen.
+  // Punto de la recta más cercano al origen:
+  //   p = (d_a·(n_b × dir) + d_b·(dir × n_a)) / |dir|²
+  // que equivale a ((d_a·n_b − d_b·n_a) × dir) / |dir|².
   const p = mul(
-    add(mul(cross(dir, b.n), a.d), mul(cross(a.n, dir), b.d)),
+    add(mul(cross(b.n, dir), a.d), mul(cross(dir, a.n), b.d)),
     1 / dl2,
   );
   return { p, dir: normalize(dir) };
