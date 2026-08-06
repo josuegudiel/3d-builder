@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node tests/e2e/smoke.mjs http://localhost:5173/",
+    "verify": "npm run typecheck && npm test"
   },
   "dependencies": {
     "earcut": "^3.0.1",

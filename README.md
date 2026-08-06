@@ -10,7 +10,7 @@ No necesita instalación ni servidor: es una aplicación estática.
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # genera dist/ listo para publicar
-npm test         # 325 pruebas del núcleo geométrico
+npm test         # 352 pruebas del núcleo geométrico
 ```
 
 ---
@@ -154,9 +154,10 @@ de prioridad de SketchUp y descartando lo que queda oculto tras una cara.
 src/core/math/        Vec2/Vec3, Mat4, planos, intersecciones, polígonos
 src/core/units.ts     parseo y formato métrico e imperial
 src/core/model/       Geometry (con validate()), Model, definiciones, cotas y guías
-src/core/topology/    arrangement, insert, rebuild, weld, orient, triangulate
+src/core/topology/    arrangement, insert, rebuild, weld, orient, repair,
+                      triangulate, keys, loops
 src/core/ops/         draw, erase, pushpull, transform, offset, followme,
-                      primitives, group
+                      primitives, solids, group
 src/core/io/          serialize (JSON), obj, stl
 src/core/history.ts   deshacer/rehacer
 src/render/           cámara orbital Z-arriba, escena, superposición, viewport
@@ -175,7 +176,7 @@ cara) y se usa en las pruebas después de cada operación.
 ## Pruebas
 
 ```bash
-npm test                                        # 325 pruebas del núcleo
+npm test                                        # 352 pruebas del núcleo
 node tests/e2e/smoke.mjs http://localhost:5173/ # prueba en Chromium
 ```
 
