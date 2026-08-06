@@ -253,11 +253,28 @@ export class Editor {
   // Deshacer / rehacer
   // -------------------------------------------------------------------------
 
-  /** Ejecuta una operación registrándola en el historial. */
+  /**
+   * Ejecuta una operación registrándola en el historial.
+   *
+   * La selección se depura ANTES de confirmar el paso: al confirmarlo se avisa
+   * a la interfaz, y si en ese momento la selección todavía apuntara a
+   * entidades recién borradas, el panel de información fallaría al consultar
+   * sus medidas y la excepción dejaría la selección obsoleta para siempre.
+   */
   edit<T>(label: string, fn: () => T): T {
-    const result = this.history.run(this.model, label, fn);
-    this.refreshModel();
-    return result;
+    this.history.begin(this.model, label);
+    try {
+      const result = fn();
+      pruneSelection(this.selection, this.geometry);
+      this.history.commit();
+      this.refreshModel();
+      return result;
+    } catch (err) {
+      this.history.abort();
+      pruneSelection(this.selection, this.geometry);
+      this.refreshModel();
+      throw err;
+    }
   }
 
   undo(): void {
@@ -378,7 +395,13 @@ export class Editor {
 
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
-    const amount = -Math.sign(e.deltaY) * 1.1;
+    // Se respeta la magnitud del evento, acotada: un roce de dos dedos en un
+    // panel táctil manda decenas de eventos de deltaY ≈ 4, y tratarlos como
+    // una muesca completa de rueda (deltaY ≈ 100) disparaba la vista.
+    const perLine = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    const raw = (e.deltaY * perLine) / 100;
+    const amount = -Math.sign(raw) * Math.min(Math.abs(raw), 3) * 1.1;
+    if (amount === 0) return;
     // Zoom hacia el punto bajo el cursor.
     const ray = this.viewport.rayFromClient(e.clientX, e.clientY);
     let focus: Vec3 | undefined;

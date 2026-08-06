@@ -74,6 +74,14 @@ export function openSolidDialog(editor: Editor, def: SolidDefinition): void {
   backdrop.addEventListener('click', (ev) => {
     if (ev.target === backdrop) backdrop.remove();
   });
+  // Escape cierra, y el teclado no se filtra a la aplicación de debajo.
+  backdrop.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      backdrop.remove();
+    }
+    ev.stopPropagation();
+  });
   document.body.append(backdrop);
   inputs.get(def.params[0].key)?.select();
   inputs.get(def.params[0].key)?.focus();
@@ -139,5 +147,6 @@ export function insertSolid(
     editor.selection.instances.add(instId);
   });
 
-  editor.setStatus(`${def.label} insertado. Doble clic para editarlo, M para moverlo.`);
+  // Redacción sin género: el catálogo tiene nombres masculinos y femeninos.
+  editor.setStatus(`Insertado: ${def.label}. Doble clic para editar el grupo, M para mover.`);
 }

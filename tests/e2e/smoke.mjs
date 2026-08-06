@@ -354,6 +354,55 @@ async function main() {
     check(`la capa ${layer} cambia lo que se dibuja`, with_ !== without,
       `${without} colores sin ella, ${with_} con ella`);
   }
+  // La rejilla vive en el suelo: no puede verse a través de una cara sólida.
+  const bleed = await page.evaluate(() => {
+    const app = window.form3d;
+    app.api.rectangle(-1.5, -1.5, 1.5, 1.5);
+    app.api.pushPull(app.api.faceNear(app.api.p(0, 0, 0)), 1.2);
+    app.api.view('iso');
+    app.api.zoomExtents();
+
+    const geo = app.editor.geometry;
+    let top = null;
+    let bestZ = -Infinity;
+    for (const f of geo.faces.values()) {
+      const pts = f.loops[0].vertices.map((v) => geo.vertexPos(v));
+      const z = pts.reduce((a, p) => a + p.z, 0) / pts.length;
+      if (z > bestZ) { bestZ = z; top = f.id; }
+    }
+    const centre = app.api.faces().find((f) => f.id === top).centre;
+    const s = app.viewport.worldToScreen(centre);
+    const ratio = app.viewport.renderer.getPixelRatio();
+    const sx = Math.round(s.x * ratio) - 12;
+    const sy = Math.round(s.y * ratio) - 12;
+
+    const sample = () => {
+      app.viewport.forceRender();
+      const cvs = app.viewport.renderer.domElement;
+      const tmp = document.createElement('canvas');
+      tmp.width = cvs.width;
+      tmp.height = cvs.height;
+      const ctx = tmp.getContext('2d');
+      ctx.drawImage(cvs, 0, 0);
+      return ctx.getImageData(sx, sy, 24, 24).data;
+    };
+
+    app.viewport.options.showGrid = true;
+    const con = sample();
+    app.viewport.options.showGrid = false;
+    const sin = sample();
+    app.viewport.options.showGrid = true;
+    app.viewport.invalidate();
+
+    let n = 0;
+    for (let i = 0; i < con.length; i += 4) {
+      if (con[i] !== sin[i] || con[i + 1] !== sin[i + 1] || con[i + 2] !== sin[i + 2]) n++;
+    }
+    return n;
+  });
+  check('la rejilla no atraviesa las caras sólidas', bleed === 0,
+    `${bleed} píxeles cambian dentro de la cara al conmutarla`);
+
   await shot(page, '10-entorno');
 
   // -------------------------------------------------------------------------

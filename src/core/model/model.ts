@@ -208,7 +208,37 @@ export class Model {
     return boxCorners(b).map((c) => transformPoint(inst.transform, c));
   }
 
-  /** Estadísticas globales. */
+  /**
+   * Geometría realmente presente en la escena: recorre el árbol desde la raíz,
+   * de modo que una definición usada dos veces cuenta dos veces y una
+   * definición huérfana no cuenta nada. Es lo que debe ver el usuario en el
+   * panel de información.
+   */
+  visibleStats(): { vertices: number; edges: number; faces: number; instances: number } {
+    let vertices = 0;
+    let edges = 0;
+    let faces = 0;
+    let instances = 0;
+
+    const walk = (defId: Id, depth: number) => {
+      if (depth > 32) return;
+      const def = this.definitions.get(defId);
+      if (!def) return;
+      const s = def.geometry.stats();
+      vertices += s.vertices;
+      edges += s.edges;
+      faces += s.faces;
+      for (const inst of def.geometry.instances.values()) {
+        if (inst.hidden) continue;
+        instances++;
+        walk(inst.definitionId, depth + 1);
+      }
+    };
+    walk(this.rootId, 0);
+    return { vertices, edges, faces, instances };
+  }
+
+  /** Estadísticas de todo lo almacenado, incluidas las definiciones sin uso. */
   stats(): { vertices: number; edges: number; faces: number; instances: number; definitions: number } {
     let vertices = 0;
     let edges = 0;

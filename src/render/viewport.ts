@@ -91,14 +91,18 @@ export class Viewport {
     // (LineSegments2). Las líneas GL nativas de `LineBasicMaterial` tienen un
     // grosor que los controladores ignoran y, en el renderizador por software
     // que se usa en las pruebas, ni siquiera producen fragmentos.
+    // La rejilla vive en el suelo y debe quedar TAPADA por lo que hay encima.
+    // Con `transparent: true` se dibujaba en la pasada de transparencias y,
+    // combinada con alphaToCoverage, sus fragmentos escapaban a la prueba de
+    // profundidad y se veían atravesando las caras sólidas. Opaca y con
+    // escritura de profundidad se comporta como cualquier otra geometría.
     this.gridMaterial = new LineMaterial({
       vertexColors: true,
       linewidth: 1,
       worldUnits: false,
-      transparent: true,
-      opacity: 0.85,
-      depthWrite: false,
-      alphaToCoverage: true,
+      transparent: false,
+      depthTest: true,
+      depthWrite: true,
     });
 
     this.scene.add(this.builder.group);
@@ -309,6 +313,7 @@ export class Viewport {
     geom.setPositions(positions);
     geom.setColors(colors);
     this.gridLines = new LineSegments2(geom, this.gridMaterial);
+    this.gridLines.renderOrder = -1;
     this.gridLines.renderOrder = -1;
     this.gridLines.visible = this.options.showGrid;
     this.gridLines.position.set(

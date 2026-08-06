@@ -165,11 +165,23 @@ export function selectCoplanar(s: Selection, geo: Geometry, faceId: Id): void {
   }
 }
 
-/** Aristas implicadas por la selección (propias y de las caras). */
+/**
+ * Aristas implicadas por la selección (propias y de las caras).
+ *
+ * Se filtran las que ya no existen: la selección puede quedar un instante
+ * desfasada respecto de la geometría mientras se procesa una operación, y
+ * ningún consumidor debería fallar por ello.
+ */
 export function selectedEdgeSet(s: Selection, geo: Geometry): Set<Id> {
-  const out = new Set<Id>(s.edges);
+  const out = new Set<Id>();
+  for (const e of s.edges) {
+    if (geo.edges.has(e)) out.add(e);
+  }
   for (const f of s.faces) {
-    for (const e of geo.faceEdges(f)) out.add(e);
+    if (!geo.faces.has(f)) continue;
+    for (const e of geo.faceEdges(f)) {
+      if (geo.edges.has(e)) out.add(e);
+    }
   }
   return out;
 }

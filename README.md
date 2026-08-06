@@ -177,7 +177,7 @@ cara) y se usa en las pruebas después de cada operación.
 
 ```bash
 npm test          # 357 pruebas del núcleo geométrico
-npm run test:e2e  # 168 comprobaciones conduciendo la aplicación en Chromium
+npm run test:e2e  # 183 comprobaciones conduciendo la aplicación en Chromium
                   # (requiere `npm run dev` en marcha)
 ```
 
@@ -192,7 +192,10 @@ corregido.
 Las pruebas de navegador conducen la aplicación real y ejercitan las veintiuna
 herramientas: dibujan con medidas exactas, extruyen, deshacen, dividen caras,
 agrupan, acotan, miden, pintan y exportan, verificando el volumen del sólido y
-los invariantes de la topología tras cada paso.
+los invariantes de la topología tras cada paso. Comprueban además cosas que
+sólo se ven en pantalla —que cada capa del entorno pinta píxeles, que la
+rejilla no atraviesa las caras sólidas— y reproducen cada problema de interfaz
+que se ha corregido, para que no vuelva.
 
 ---
 

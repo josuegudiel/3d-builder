@@ -247,10 +247,11 @@ export class AppUI {
             this.editor.renderOptions.showHiddenGeometry = v;
             this.editor.refreshModel();
           }),
-          this.buildCheck('Contornos gruesos', true, (v) => {
+          this.buildCheck('Aristas desnudas gruesas', true, (v) => {
             this.editor.renderOptions.showProfiles = v;
             this.editor.refreshModel();
-          }),
+          }, 'Dibuja más gruesas las aristas que no cierran ningún volumen, '
+            + 'para localizar de un vistazo los huecos del modelo.'),
         );
         const styleField = el('label', 'field');
         styleField.innerHTML = '<span>Estilo de caras</span>';
@@ -343,8 +344,14 @@ export class AppUI {
     return card;
   }
 
-  private buildCheck(label: string, initial: boolean, onChange: (v: boolean) => void): HTMLElement {
+  private buildCheck(
+    label: string,
+    initial: boolean,
+    onChange: (v: boolean) => void,
+    title?: string,
+  ): HTMLElement {
     const l = el('label', 'checkline');
+    if (title) l.title = title;
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.checked = initial;
@@ -460,6 +467,15 @@ export class AppUI {
     e.events.onContextChanged = () => this.refreshPanels();
 
     document.addEventListener('click', () => this.closeMenus());
+    // El primer clic fuera de un menú abierto sólo lo descarta: sin esto,
+    // cerrar el menú colocaba además el primer punto de la línea.
+    this.viewport.renderer.domElement.addEventListener('pointerdown', (ev) => {
+      if (this.openMenu) {
+        this.closeMenus();
+        ev.stopImmediatePropagation();
+        ev.preventDefault();
+      }
+    }, true);
     window.addEventListener('keydown', (ev) => this.onKeyDown(ev));
 
     this.vcbInput.addEventListener('keydown', (ev) => {
@@ -492,6 +508,14 @@ export class AppUI {
   }
 
   private onKeyDown(ev: KeyboardEvent): void {
+    // Con un diálogo abierto, el teclado es suyo.
+    if (document.querySelector('.modal-backdrop')) {
+      if (ev.key === 'Escape') {
+        document.querySelector('.modal-backdrop')?.remove();
+        ev.preventDefault();
+      }
+      return;
+    }
     const target = ev.target as HTMLElement | null;
     const typing = target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA');
 
@@ -621,13 +645,12 @@ export class AppUI {
     const instances = [...sel.instances];
     this.editor.edit('Borrar', () => {
       const geo = this.editor.geometry;
+      clearSelection(sel);
       eraseInstances(geo, instances);
       if (edges.length > 0) eraseEdges(geo, edges);
       const remaining = faces.filter((f) => geo.faces.has(f));
       if (remaining.length > 0) eraseFaces(geo, remaining);
     });
-    clearSelection(sel);
-    this.editor.refreshModel();
   }
 
   private doGroup(kind: 'group' | 'component'): void {
@@ -689,7 +712,7 @@ export class AppUI {
 
   private saveFile(): void {
     const json = serializeToJSON(this.editor.model, 2);
-    download(new Blob([json], { type: 'application/json' }), `${this.editor.model.name || 'modelo'}.form3d.json`);
+    download(new Blob([json], { type: 'application/json' }), `${safeFileName(this.editor.model.name)}.form3d.json`);
     this.editor.setStatus('Modelo guardado.');
   }
 
@@ -715,21 +738,24 @@ export class AppUI {
 
   private exportObj(): void {
     const { obj, mtl } = exportOBJ(this.editor.model);
-    download(new Blob([obj], { type: 'text/plain' }), `${this.editor.model.name || 'modelo'}.obj`);
+    download(new Blob([obj], { type: 'text/plain' }), `${safeFileName(this.editor.model.name)}.obj`);
     download(new Blob([mtl], { type: 'text/plain' }), 'form3d.mtl');
     this.editor.setStatus('Exportado a OBJ.');
   }
 
   private exportStl(): void {
     const buffer = exportSTLBinary(this.editor.model);
-    download(new Blob([buffer], { type: 'model/stl' }), `${this.editor.model.name || 'modelo'}.stl`);
+    download(new Blob([buffer], { type: 'model/stl' }), `${safeFileName(this.editor.model.name)}.stl`);
     this.editor.setStatus('Exportado a STL (milímetros).');
   }
 
   private exportPng(): void {
     this.viewport.forceRender();
     this.viewport.renderer.domElement.toBlob((blob) => {
-      if (blob) download(blob, `${this.editor.model.name || 'modelo'}.png`);
+      if (blob) {
+        download(blob, `${safeFileName(this.editor.model.name)}.png`);
+        this.editor.setStatus('Imagen guardada.');
+      }
     }, 'image/png');
   }
 
@@ -780,7 +806,7 @@ export class AppUI {
     const units = this.editor.units;
     const rows: string[] = [];
 
-    const stats = this.editor.model.stats();
+    const stats = this.editor.model.visibleStats();
     rows.push(row('Aristas', String(stats.edges)));
     rows.push(row('Caras', String(stats.faces)));
     rows.push(row('Grupos', String(stats.instances)));
@@ -932,8 +958,9 @@ export class AppUI {
     this.showModal('Cómo empezar', `
       <ol style="padding-left:18px;line-height:1.75">
         <li>Pulsa <kbd>R</kbd> y dibuja un rectángulo en el suelo.</li>
-        <li>Sin soltar el ratón del todo, escribe <b>4000;3000</b> y pulsa <kbd>Intro</kbd>:
-            tendrás un rectángulo de 4 × 3 metros exactos.</li>
+        <li>Puedes hacer clic en una esquina y otro clic en la opuesta, o
+            arrastrar de una a otra. Antes de cerrar, escribe <b>4000;3000</b> y
+            pulsa <kbd>Intro</kbd>: tendrás 4 × 3 metros exactos.</li>
         <li>Pulsa <kbd>P</kbd> (Empujar/Tirar), haz clic en la cara y muévete hacia arriba.
             Escribe <b>2500</b> y pulsa <kbd>Intro</kbd> para una altura exacta.</li>
         <li>Con <kbd>L</kbd> dibuja líneas sobre las caras para dividirlas: cada contorno
@@ -947,6 +974,10 @@ export class AppUI {
   }
 
   private showModal(title: string, html: string): void {
+    // Un solo diálogo a la vez: pulsar el atajo con uno abierto lo reemplaza en
+    // lugar de apilar copias idénticas.
+    for (const old of document.querySelectorAll('.modal-backdrop')) old.remove();
+
     const backdrop = el('div', 'modal-backdrop');
     const modal = el('div', 'modal');
     modal.innerHTML = `<h2>${escapeHtml(title)}</h2>${html}`;
@@ -960,8 +991,19 @@ export class AppUI {
     backdrop.addEventListener('click', (ev) => {
       if (ev.target === backdrop) backdrop.remove();
     });
+    // El teclado no debe llegar a la aplicación mientras el diálogo esté
+    // abierto: escribir un número enfocaba el cuadro de medidas que quedaba
+    // debajo. Escape cierra, como en cualquier diálogo.
+    backdrop.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') backdrop.remove();
+      ev.stopPropagation();
+    });
+    backdrop.tabIndex = -1;
     document.body.append(backdrop);
-    close.focus();
+    // Enfocar sin arrastrar el desplazamiento: enfocar el botón «Cerrar»
+    // llevaba el diálogo de atajos hasta el final, ocultando lo importante.
+    backdrop.focus({ preventScroll: true });
+    modal.scrollTop = 0;
   }
 }
 
@@ -983,6 +1025,23 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
   ));
+}
+
+/**
+ * Nombre de archivo seguro para el atributo `download`.
+ *
+ * Algunos navegadores descartan el atributo entero —y descargan un fichero
+ * llamado «download», sin extensión— si contiene caracteres no ASCII. El
+ * nombre por defecto del modelo, «Sin título», caía justo en ese caso.
+ */
+function safeFileName(name: string): string {
+  const base = (name || 'modelo')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')   // quita las tildes
+    .replace(/[^A-Za-z0-9 ._-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return base || 'modelo';
 }
 
 function download(blob: Blob, filename: string): void {

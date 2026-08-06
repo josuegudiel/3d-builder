@@ -15,12 +15,40 @@ import {
 import { formatLength, parseLength, parseLengthList } from '../core/units';
 import { orientFacesConsistently } from '../core/topology/orient';
 
+/** Distancia en píxeles a partir de la cual un clic se considera arrastre. */
+const DRAG_PIXELS = 5;
+
 /** Base para las herramientas que dibujan sobre un plano de trabajo. */
 abstract class DrawingTool extends BaseTool {
   /** Puntos ya fijados, en coordenadas del mundo. */
   protected points: Vec3[] = [];
   /** Punto que sigue al cursor. */
   protected preview: Vec3 | null = null;
+  /** Posición del último `pointerdown`, para detectar el arrastre. */
+  private pressAt: { x: number; y: number; points: number } | null = null;
+
+  /**
+   * Las herramientas de dibujo admiten los dos gestos de SketchUp: clic-clic y
+   * pulsar-arrastrar-soltar. Al soltar tras un arrastre se repite el mismo
+   * camino que seguiría el segundo clic.
+   */
+  override onPointerUp(e: PointerInfo): void {
+    const press = this.pressAt;
+    this.pressAt = null;
+    if (!press || e.button !== 0) return;
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < DRAG_PIXELS) return;
+    // Sólo se completa si el `pointerdown` fue el que fijó un punto nuevo.
+    if (this.points.length !== press.points + 1) return;
+    this.onPointerMove(e);
+    this.onPointerDown(e);
+  }
+
+  /** Registra el punto de partida del gesto. Llamar al principio de onPointerDown. */
+  protected notePress(e: PointerInfo): void {
+    if (e.button === 0) {
+      this.pressAt = { x: e.clientX, y: e.clientY, points: this.points.length };
+    }
+  }
 
   /** Dirección hacia la cámara, en el espacio del contexto (para orientar caras). */
   protected orientToward(): Vec3 {
@@ -92,6 +120,7 @@ export class LineTool extends DrawingTool {
 
   override onPointerDown(e: PointerInfo): void {
     if (e.button !== 0) return;
+    this.notePress(e);
     const hit = this.updateInference(e);
     this.addPoint(hit.point);
   }
@@ -190,6 +219,7 @@ export class RectangleTool extends DrawingTool {
 
   override onPointerDown(e: PointerInfo): void {
     if (e.button !== 0) return;
+    this.notePress(e);
     const hit = this.updateInference(e);
 
     if (this.points.length === 0) {
@@ -275,6 +305,7 @@ abstract class RadialTool extends DrawingTool {
 
   override onPointerDown(e: PointerInfo): void {
     if (e.button !== 0) return;
+    this.notePress(e);
     const hit = this.updateInference(e);
 
     if (this.points.length === 0) {

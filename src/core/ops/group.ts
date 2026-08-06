@@ -144,6 +144,15 @@ export function explodeInstance(model: Model, geo: Geometry, instanceId: Id): bo
     const a = transformPoint(m, def.geometry.vertexPos(e.a));
     const b = transformPoint(m, def.geometry.vertexPos(e.b));
     const r = insertSegment(geo, a, b);
+    // Los atributos de la arista deben viajar con ella: sin esto, un cilindro
+    // explotado perdía el suavizado y aparecía facetado.
+    for (const id of r.affectedEdges) {
+      const copy = geo.edges.get(id);
+      if (!copy) continue;
+      copy.soft = copy.soft || e.soft;
+      copy.smooth = copy.smooth || e.smooth;
+      copy.hidden = copy.hidden || e.hidden;
+    }
     affected.push(...r.affectedEdges);
   }
 
