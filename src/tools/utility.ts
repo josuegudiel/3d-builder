@@ -347,9 +347,18 @@ export class DimensionTool extends BaseTool {
 
     const a = this.editor.toRoot(this.a);
     const b = this.editor.toRoot(this.b);
-    const off = this.editor.toRootVector(this.offset);
+    let off = this.editor.toRootVector(this.offset);
+    if (length(off) <= EPS) {
+      // Sin separación la cota quedaría pegada al segmento y sería ilegible:
+      // se aparta un poco en perpendicular, hacia arriba si es posible.
+      const dir = normalize(sub(b, a));
+      const up = Math.abs(dir.z) > 0.9 ? v3(1, 0, 0) : v3(0, 0, 1);
+      const perp = normalize(cross(cross(dir, up), dir));
+      off = mul(perp, Math.max(distance(a, b) * 0.15, EPS * 10));
+    }
+    const finalOffset = off;
     this.editor.edit('Acotar', () => {
-      this.editor.model.addDimension(a, b, off, '');
+      this.editor.model.addDimension(a, b, finalOffset, '');
     });
     this.cancel();
   }

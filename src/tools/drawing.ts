@@ -416,7 +416,11 @@ export class ArcTool extends DrawingTool {
       if (length(n2) > EPS) normal = normalize(n2);
       const perp = normalize(cross(normal, chord));
       this.bulge = dot(toCursor, perp);
-      this.curve = bulgeArcPoints(a, b, this.bulge, normal, this.segments);
+      // Sin comba apreciable el arco degenera en la propia cuerda; se dibuja
+      // recta en lugar de dejar la herramienta bloqueada sin nada que trazar.
+      this.curve = Math.abs(this.bulge) <= EPS
+        ? [a, b]
+        : bulgeArcPoints(a, b, this.bulge, normal, this.segments);
       this.editor.showMeasurement('Comba', formatLength(Math.abs(this.bulge), this.editor.units));
     }
     this.editor.refreshOverlay();
@@ -469,7 +473,9 @@ export class ArcTool extends DrawingTool {
       if (length(n2) > EPS) normal = normalize(n2);
     }
     const signed = this.bulge < 0 ? -Math.abs(value) : Math.abs(value);
-    const curve = bulgeArcPoints(a, b, signed, normal, this.segments);
+    const curve = Math.abs(signed) <= EPS
+      ? [a, b]
+      : bulgeArcPoints(a, b, signed, normal, this.segments);
     if (curve.length < 2) return false;
     this.commit(curve, false, 'Arco');
     this.cancel();
