@@ -35,16 +35,14 @@ async function modelState(page) {
   return page.evaluate(() => {
     const app = window.form3d;
     const geo = app.editor.geometry;
-    const orient = window.__form3dOrient;
-    const faces = [...geo.faces.keys()];
     return {
       stats: app.editor.model.stats(),
       faceCount: geo.faces.size,
       edgeCount: geo.edges.size,
       vertexCount: geo.vertices.size,
-      volume: orient ? Math.abs(orient.shellVolume(geo, faces)) : null,
-      isSolid: orient ? orient.isSolid(geo, faces) : null,
-      invariants: geo.validate(),
+      volume: app.api.volume(),
+      isSolid: app.api.isSolid(),
+      invariants: app.api.validate(),
       bounds: (() => {
         let min = [Infinity, Infinity, Infinity];
         let max = [-Infinity, -Infinity, -Infinity];
@@ -95,16 +93,6 @@ async function main() {
   console.log(`\nAbriendo ${URL_BASE}`);
   await page.goto(URL_BASE, { waitUntil: 'networkidle' });
   await page.waitForTimeout(900);
-
-  // Exponer utilidades del kernel para las comprobaciones.
-  await page.addScriptTag({
-    type: 'module',
-    content: `
-      import * as orient from '/src/core/topology/orient.ts';
-      window.__form3dOrient = orient;
-    `,
-  });
-  await page.waitForTimeout(400);
 
   console.log('\n1. Arranque');
   check(page, true);
@@ -306,15 +294,14 @@ async function main() {
   console.log('\n9. Exportación y guardado');
   const exports = await page.evaluate(async () => {
     const app = window.form3d;
-    const [{ exportOBJ }, { exportSTLAscii }, { serializeToJSON, deserializeModel }] = await Promise.all([
-      import('/src/core/io/obj.ts'),
-      import('/src/core/io/stl.ts'),
-      import('/src/core/io/serialize.ts'),
-    ]);
-    const obj = exportOBJ(app.editor.model).obj;
-    const stl = exportSTLAscii(app.editor.model);
-    const json = serializeToJSON(app.editor.model);
-    const round = deserializeModel(json);
+    // Se usa la interfaz de automatización publicada por la aplicación, que
+    // funciona tanto con el servidor de desarrollo como con el paquete ya
+    // construido (donde no existen las rutas /src/**.ts).
+    const api = app.api;
+    const obj = api.exportOBJ().obj;
+    const stl = api.exportSTL(false);
+    const json = api.toJSON();
+    const round = api.parseJSON(json);
     return {
       objFaces: (obj.match(/^f /gm) || []).length,
       stlFacets: (stl.match(/facet normal/g) || []).length,

@@ -32,6 +32,7 @@ import { exportSTLBinary } from '../core/io/stl';
 import { StandardView } from '../render/camera';
 import { Model } from '../core/model/model';
 import { AutoSave } from '../app/autosave';
+import { Form3DApi } from '../app/api';
 import { ContextMenu } from './contextmenu';
 import { SOLIDS } from '../core/ops/solids';
 import { openSolidDialog } from './solids-dialog';
@@ -48,6 +49,8 @@ interface ToolEntry {
 export class AppUI {
   readonly viewport: Viewport;
   readonly editor: Editor;
+  /** Interfaz de automatización, disponible en `window.form3d.api`. */
+  readonly api: Form3DApi;
 
   private tools: ToolEntry[] = [];
   private toolButtons = new Map<string, HTMLButtonElement>();
@@ -74,6 +77,7 @@ export class AppUI {
     this.buildLayout();
     this.viewport = new Viewport(this.canvasWrap.querySelector('.canvas-host')!);
     this.editor = new Editor(this.viewport);
+    this.api = new Form3DApi(this.editor);
     this.registerTools();
     this.buildToolbar();
     this.wireEvents();

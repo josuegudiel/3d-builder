@@ -196,6 +196,34 @@ los invariantes de la topología tras cada paso.
 
 ---
 
+## API de automatización
+
+La aplicación publica `window.form3d.api`, con las mismas operaciones que usan
+las herramientas. Sirve para generar geometría por programa desde la consola
+del navegador. Todas las longitudes van en metros.
+
+```js
+const api = window.form3d.api;
+
+api.rectangle(0, 0, 4, 3);                    // planta de 4 × 3 m
+const suelo = api.faceNear(api.p(2, 1.5, 0));
+api.pushPull(suelo, 2.5);                     // levantar 2,5 m
+
+api.volume();          // 30
+api.format(2.5);       // "2500 mm"
+api.isSolid();         // true
+api.validate();        // [] si la topología está sana
+
+api.solid('cylinder', { radius: 0.5, height: 2, segments: 32 });
+api.view('front');
+api.exportSTL();
+```
+
+Cada llamada que modifica el modelo queda registrada en el historial, así que
+**Ctrl+Z** deshace lo hecho por guion igual que lo hecho a mano.
+
+---
+
 ## Límites conocidos
 
 - Empujar una cara **a través** de un sólido no perfora un agujero: se permite
