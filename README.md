@@ -242,6 +242,10 @@ Cada llamada que modifica el modelo queda registrada en el historial, así que
   orientación no se propaga a través de las aristas compartidas por tres caras.
   El panel de información sólo muestra el volumen cuando la selección forma un
   sólido cerrado de verdad, así que nunca da una cifra engañosa.
+- La casilla «Aristas desnudas gruesas» resalta las aristas que no cierran
+  ningún volumen, que es útil para encontrar huecos, pero no es lo mismo que
+  los *contornos* de SketchUp: aquéllos son la silueta vista desde la cámara y
+  habría que recalcularlos en cada giro.
 - El coste de reconstruir un plano crece con el número de aristas que contiene.
   Con unos cientos de rectángulos coplanares cada operación cuesta pocos
   milisegundos; un plano con muchos miles de aristas se nota.

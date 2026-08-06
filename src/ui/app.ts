@@ -67,6 +67,7 @@ export class AppUI {
   private infoBody!: HTMLDivElement;
   private outlinerBody!: HTMLDivElement;
   private swatchHost!: HTMLDivElement;
+  private viewButtons!: HTMLElement;
 
   private paintTool!: PaintTool;
   private activeMaterial = 'blanco';
@@ -141,7 +142,15 @@ export class AppUI {
       }))),
       this.buildMenu('Ver', [
         { label: 'Encajar todo', keys: 'Mayús+Z', action: () => this.editor.zoomExtents() },
-        { label: 'Encajar selección', action: () => this.editor.zoomSelection() },
+        {
+          label: 'Encajar selección',
+          action: () => {
+            if (selectionSize(this.editor.selection) === 0) {
+              this.editor.setStatus('No hay nada seleccionado: se encaja el modelo entero.');
+            }
+            this.editor.zoomSelection();
+          },
+        },
         { sep: true },
         { label: 'Superior', action: () => this.setView('top') },
         { label: 'Frontal', action: () => this.setView('front') },
@@ -198,17 +207,19 @@ export class AppUI {
     this.labelHost.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
 
     const cube = el('div', 'view-cube');
-    const views: Array<[string, StandardView]> = [
-      ['Sup', 'top'], ['Fr', 'front'], ['Der', 'right'],
-      ['Iso', 'iso'], ['Post', 'back'], ['Izq', 'left'],
+    const views: Array<[string, StandardView, string]> = [
+      ['Sup', 'top', 'superior'], ['Fr', 'front', 'frontal'], ['Der', 'right', 'derecha'],
+      ['Iso', 'iso', 'isométrica'], ['Post', 'back', 'posterior'], ['Izq', 'left', 'izquierda'],
     ];
-    for (const [label, view] of views) {
+    for (const [label, view, name] of views) {
       const b = document.createElement('button');
       b.textContent = label;
-      b.title = `Vista ${label.toLowerCase()}`;
+      b.title = `Vista ${name}`;
+      b.dataset.view = view;
       b.addEventListener('click', () => this.setView(view));
       cube.append(b);
     }
+    this.viewButtons = cube;
 
     const legend = el('div', 'axis-legend');
     legend.innerHTML =
@@ -466,6 +477,12 @@ export class AppUI {
     };
     e.events.onContextChanged = () => this.refreshPanels();
 
+    // Orbitar con el ratón deja de estar en una vista normalizada.
+    this.viewport.renderer.domElement.addEventListener('pointerdown', (ev) => {
+      if (ev.button === 1) this.markActiveView(null);
+    });
+    this.viewport.renderer.domElement.addEventListener('wheel', () => this.markActiveView(null));
+
     document.addEventListener('click', () => this.closeMenus());
     // El primer clic fuera de un menú abierto sólo lo descarta: sin esto,
     // cerrar el menú colocaba además el primer punto de la línea.
@@ -615,6 +632,17 @@ export class AppUI {
   private setView(view: StandardView): void {
     this.viewport.cameraCtl.setStandardView(view);
     this.viewport.invalidate();
+    this.markActiveView(view);
+  }
+
+  /**
+   * Marca el botón de la vista activa. Se borra en cuanto el usuario orbita:
+   * la cámara ya no está en ninguna vista normalizada.
+   */
+  private markActiveView(view: StandardView | null): void {
+    for (const b of this.viewButtons.querySelectorAll('button')) {
+      b.classList.toggle('active', b.dataset.view === view);
+    }
   }
 
   private toggleProjection(): void {

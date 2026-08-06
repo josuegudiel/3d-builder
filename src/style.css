@@ -206,7 +206,19 @@ button {
   gap: 2px;
   padding: 6px 0;
   overflow-y: auto;
+  scrollbar-width: thin;
   z-index: 15;
+  /* Degradados en los extremos: avisan de que hay más herramientas fuera de
+     la vista cuando la ventana es baja. */
+  background-image:
+    linear-gradient(var(--panel) 30%, rgba(255, 255, 255, 0)),
+    linear-gradient(rgba(255, 255, 255, 0), var(--panel) 70%),
+    radial-gradient(farthest-side at 50% 0, rgba(30, 40, 50, 0.14), rgba(0, 0, 0, 0)),
+    radial-gradient(farthest-side at 50% 100%, rgba(30, 40, 50, 0.14), rgba(0, 0, 0, 0));
+  background-repeat: no-repeat;
+  background-size: 100% 28px, 100% 28px, 100% 10px, 100% 10px;
+  background-position: 0 0, 0 100%, 0 0, 0 100%;
+  background-attachment: local, local, scroll, scroll;
 }
 
 .tool-btn {
@@ -359,6 +371,13 @@ button {
   background: #fff;
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.view-cube button.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .axis-legend {
