@@ -49,10 +49,30 @@ export interface SceneLabel {
   id: Id;
 }
 
+/**
+ * Bloque contiguo de entidades con su caja envolvente en el mundo.
+ *
+ * Cada visita a una definición aporta un bloque. El selector prueba primero el
+ * rayo contra la caja y, si falla, se salta de golpe todos los triángulos y
+ * aristas del bloque: con veinte objetos en escena eso descarta el 95 % del
+ * trabajo antes de empezar.
+ */
+export interface PickGroup {
+  box: Box3;
+  triStart: number;
+  triEnd: number;
+  segStart: number;
+  segEnd: number;
+  vertStart: number;
+  vertEnd: number;
+}
+
 export interface PickCache {
   triangles: PickTriangle[];
   segments: PickSegment[];
   vertices: PickVertex[];
+  /** Bloques con caja envolvente, para descartar en bloque. */
+  groups: PickGroup[];
   /** Textos anclados en el espacio 3D (cotas). */
   labels: SceneLabel[];
   /** Caja envolvente en coordenadas del mundo de cada instancia visible. */
@@ -148,7 +168,8 @@ export class SceneBuilder {
   private guideMaterial: LineMaterial;
 
   pick: PickCache = {
-    triangles: [], segments: [], vertices: [], labels: [], instanceBoxes: [], bounds: emptyBox(),
+    triangles: [], segments: [], vertices: [], groups: [], labels: [],
+    instanceBoxes: [], bounds: emptyBox(),
   };
 
   constructor() {
@@ -238,7 +259,8 @@ export class SceneBuilder {
     const guides = newEdgeBatch();
 
     const pick: PickCache = {
-      triangles: [], segments: [], vertices: [], labels: [], instanceBoxes: [], bounds: emptyBox(),
+      triangles: [], segments: [], vertices: [], groups: [], labels: [],
+      instanceBoxes: [], bounds: emptyBox(),
     };
 
     const contextPath = [...options.context];
@@ -342,6 +364,14 @@ export class SceneBuilder {
 
     const geo = def.geometry;
     const flip = matFlipsOrientation(transform);
+
+    // Inicio del bloque de esta definición (los hijos añadirán los suyos
+    // después, así que los rangos siguen siendo contiguos).
+    const groupStart = {
+      tri: pick.triangles.length,
+      seg: pick.segments.length,
+      vert: pick.vertices.length,
+    };
 
     // --- Caras --------------------------------------------------------------
     for (const face of geo.faces.values()) {
@@ -459,6 +489,30 @@ export class SceneBuilder {
           active: true,
         });
       }
+    }
+
+    // --- Cierre del bloque ---------------------------------------------------
+    const groupBox = emptyBox();
+    for (let i = groupStart.tri; i < pick.triangles.length; i++) {
+      const t = pick.triangles[i];
+      expandBox(groupBox, t.a);
+      expandBox(groupBox, t.b);
+      expandBox(groupBox, t.c);
+    }
+    for (let i = groupStart.seg; i < pick.segments.length; i++) {
+      expandBox(groupBox, pick.segments[i].a);
+      expandBox(groupBox, pick.segments[i].b);
+    }
+    if (pick.triangles.length > groupStart.tri || pick.segments.length > groupStart.seg) {
+      pick.groups.push({
+        box: groupBox,
+        triStart: groupStart.tri,
+        triEnd: pick.triangles.length,
+        segStart: groupStart.seg,
+        segEnd: pick.segments.length,
+        vertStart: groupStart.vert,
+        vertEnd: pick.vertices.length,
+      });
     }
 
     // --- Instancias ----------------------------------------------------------

@@ -1,8 +1,9 @@
 import { Id } from '../core/model/types';
 import { Vec3, sub, add, mul, dot, lengthSq, addScaled } from '../core/math/vec';
-import { Ray, rayTriangle } from '../core/math/geom';
+import { Ray } from '../core/math/geom';
+import { rayTriangleFast, rayPointDistanceSq, rayDepth, raySegmentDistance } from './fastmath';
 import { clamp } from '../core/math/tolerance';
-import { PickCache } from '../render/scene';
+import { PickCache, PickGroup } from '../render/scene';
 import { Viewport } from '../render/viewport';
 import { SNAP_PIXELS } from '../render/theme';
 
@@ -65,25 +66,40 @@ export function pickEntity(
   const ray = viewport.rayFromClient(clientX, clientY);
   const cursor = viewport.toLocal(clientX, clientY);
 
+  /**
+   * Radio en unidades del mundo que corresponde a `px` píxeles a una
+   * profundidad dada. Permite descartar candidatos con aritmética escalar,
+   * antes de proyectar nada a pantalla, que es la parte cara.
+   */
+  const worldRadius = (px: number, depth: number) =>
+    px * viewport.worldPerPixel(addScaled(ray.origin, ray.dir, Math.max(depth, 1e-6)));
+
+  // Bloques cuya caja envolvente cruza el rayo, con un margen para que los
+  // enganches a vértices y aristas cercanos al borde no se pierdan.
+  const active = visibleGroups(cache, ray, viewport);
+
   // --- 1. Cara más cercana --------------------------------------------------
   let faceHit: PickResult | null = null;
   let faceT = Infinity;
-  for (const tri of cache.triangles) {
-    const t = rayTriangle(ray, tri.a, tri.b, tri.c, false);
-    if (t === null || t >= faceT) continue;
-    faceT = t;
-    const point = addScaled(ray.origin, ray.dir, t);
-    if (tri.active) {
-      faceHit = {
-        kind: 'face', id: tri.faceId, path: tri.path, point, distance: t, screenDistance: 0,
-      };
-    } else if (tri.topInstance !== null) {
-      faceHit = {
-        kind: 'instance', id: tri.topInstance, path: tri.path.slice(0, tri.path.length),
-        point, distance: t, screenDistance: 0,
-      };
-    } else {
-      faceHit = null;
+  for (const g of active) {
+    for (let i = g.triStart; i < g.triEnd; i++) {
+      const tri = cache.triangles[i];
+      const t = rayTriangleFast(ray, tri.a, tri.b, tri.c);
+      if (t < 0 || t >= faceT) continue;
+      faceT = t;
+      const point = addScaled(ray.origin, ray.dir, t);
+      if (tri.active) {
+        faceHit = {
+          kind: 'face', id: tri.faceId, path: tri.path, point, distance: t, screenDistance: 0,
+        };
+      } else if (tri.topInstance !== null) {
+        faceHit = {
+          kind: 'instance', id: tri.topInstance, path: tri.path.slice(0, tri.path.length),
+          point, distance: t, screenDistance: 0,
+        };
+      } else {
+        faceHit = null;
+      }
     }
   }
 
@@ -95,12 +111,18 @@ export function pickEntity(
   if (opts.vertices) {
     const tol = SNAP_PIXELS.vertex * opts.toleranceScale;
     let bestD = tol;
-    for (const v of cache.vertices) {
+    for (const g of active) {
+      for (let i = g.vertStart; i < g.vertEnd; i++) {
+      const v = cache.vertices[i];
       if (!v.active) continue;
+      const along = rayDepth(ray, v.p);
+      if (along <= 0 || along > depthSlack) continue;
+      // Rechazo barato en el espacio del mundo, con margen de seguridad.
+      const limit = worldRadius(tol * 1.5, along);
+      if (rayPointDistanceSq(ray, v.p) > limit * limit) continue;
+
       const s = project(viewport, v.p);
       if (!s || s.depth <= 0) continue;
-      const along = dot(sub(v.p, ray.origin), ray.dir);
-      if (along > depthSlack) continue;
       const d = Math.hypot(s.x - cursor.x, s.y - cursor.y);
       if (d < bestD) {
         bestD = d;
@@ -108,6 +130,7 @@ export function pickEntity(
           kind: 'vertex', id: v.vertexId, path: v.path, point: v.p,
           distance: along, screenDistance: d,
         };
+      }
       }
     }
     if (best) return best;
@@ -117,8 +140,15 @@ export function pickEntity(
   if (opts.edges) {
     const tol = SNAP_PIXELS.edge * opts.toleranceScale;
     let bestD = tol;
-    for (const seg of cache.segments) {
+    for (const g of active) {
+      for (let i = g.segStart; i < g.segEnd; i++) {
+      const seg = cache.segments[i];
       if (!seg.active) continue;
+      const near = raySegmentDistance(ray, seg.a, seg.b);
+      if (near.depth <= 0 || near.depth > depthSlack) continue;
+      const limit = worldRadius(tol * 1.5, near.depth);
+      if (near.distSq > limit * limit) continue;
+
       const sa = project(viewport, seg.a);
       const sb = project(viewport, seg.b);
       if (!sa || !sb || sa.depth <= 0 || sb.depth <= 0) continue;
@@ -132,6 +162,7 @@ export function pickEntity(
         kind: 'edge', id: seg.edgeId, path: seg.path, point,
         distance: along, screenDistance: dist, t,
       };
+      }
     }
     if (best) return best;
   }
@@ -140,8 +171,14 @@ export function pickEntity(
   if (opts.instances) {
     const tol = SNAP_PIXELS.edge * opts.toleranceScale;
     let bestD = tol;
-    for (const seg of cache.segments) {
+    for (const g of active) {
+      for (let i = g.segStart; i < g.segEnd; i++) {
+      const seg = cache.segments[i];
       if (seg.active || seg.topInstance === null) continue;
+      const near = raySegmentDistance(ray, seg.a, seg.b);
+      if (near.depth <= 0 || near.depth > depthSlack) continue;
+      const limit = worldRadius(tol * 1.5, near.depth);
+      if (near.distSq > limit * limit) continue;
       const sa = project(viewport, seg.a);
       const sb = project(viewport, seg.b);
       if (!sa || !sb || sa.depth <= 0 || sb.depth <= 0) continue;
@@ -155,6 +192,7 @@ export function pickEntity(
         kind: 'instance', id: seg.topInstance, path: seg.path, point,
         distance: along, screenDistance: dist,
       };
+      }
     }
     if (best) return best;
   }
@@ -178,15 +216,18 @@ export function pickFace(
   const ray = viewport.rayFromClient(clientX, clientY);
   let bestT = Infinity;
   let result: PickResult | null = null;
-  for (const tri of cache.triangles) {
-    if (!tri.active) continue;
-    const t = rayTriangle(ray, tri.a, tri.b, tri.c, false);
-    if (t === null || t >= bestT) continue;
-    bestT = t;
-    result = {
-      kind: 'face', id: tri.faceId, path: tri.path,
-      point: addScaled(ray.origin, ray.dir, t), distance: t, screenDistance: 0,
-    };
+  for (const g of visibleGroups(cache, ray, viewport)) {
+    for (let i = g.triStart; i < g.triEnd; i++) {
+      const tri = cache.triangles[i];
+      if (!tri.active) continue;
+      const t = rayTriangleFast(ray, tri.a, tri.b, tri.c);
+      if (t < 0 || t >= bestT) continue;
+      bestT = t;
+      result = {
+        kind: 'face', id: tri.faceId, path: tri.path,
+        point: addScaled(ray.origin, ray.dir, t), distance: t, screenDistance: 0,
+      };
+    }
   }
   return result;
 }
@@ -338,4 +379,52 @@ export function closestPointOnSegmentToRay(a: Vec3, b: Vec3, ray: Ray): Vec3 {
   if (Math.abs(denom) < 1e-15) return a;
   const s = clamp((B * E - C * D) / denom, 0, 1);
   return addScaled(a, ab, s);
+}
+
+
+/**
+ * Bloques cuya caja envolvente atraviesa el rayo. La caja se dilata en el
+ * equivalente en mundo al radio de captura, para no perder los enganches a
+ * vértices y aristas que quedan justo al borde del objeto.
+ */
+function visibleGroups(cache: PickCache, ray: Ray, viewport: Viewport): PickGroup[] {
+  if (cache.groups.length <= 1) return cache.groups;
+  const out: PickGroup[] = [];
+  for (const g of cache.groups) {
+    const centre = {
+      x: (g.box.min.x + g.box.max.x) / 2,
+      y: (g.box.min.y + g.box.max.y) / 2,
+      z: (g.box.min.z + g.box.max.z) / 2,
+    };
+    const pad = viewport.worldPerPixel(centre) * (SNAP_PIXELS.vertex * 2);
+    if (rayHitsBox(ray, g.box, pad)) out.push(g);
+  }
+  return out;
+}
+
+/** Prueba rayo-caja por planos deslizantes, sin asignaciones. */
+function rayHitsBox(ray: Ray, box: { min: Vec3; max: Vec3 }, pad: number): boolean {
+  if (box.min.x > box.max.x) return false;
+  let tmin = 0;
+  let tmax = Infinity;
+
+  const axis = (o: number, d: number, lo: number, hi: number): boolean => {
+    if (Math.abs(d) < 1e-12) return o >= lo - pad && o <= hi + pad;
+    const inv = 1 / d;
+    let t1 = (lo - pad - o) * inv;
+    let t2 = (hi + pad - o) * inv;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
+    }
+    if (t1 > tmin) tmin = t1;
+    if (t2 < tmax) tmax = t2;
+    return tmax >= tmin;
+  };
+
+  if (!axis(ray.origin.x, ray.dir.x, box.min.x, box.max.x)) return false;
+  if (!axis(ray.origin.y, ray.dir.y, box.min.y, box.max.y)) return false;
+  if (!axis(ray.origin.z, ray.dir.z, box.min.z, box.max.z)) return false;
+  return true;
 }
