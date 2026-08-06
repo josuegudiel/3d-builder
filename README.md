@@ -195,3 +195,13 @@ verificando el volumen del sólido y los invariantes tras cada paso.
 - Sígueme funciona con el recorrido seleccionado de antemano.
 - El guardado automático usa el almacenamiento local del navegador; para
   conservar el trabajo de verdad, usa **Archivo ▸ Guardar**.
+- Dos cáscaras cerradas independientes (una caja dentro de otra) se orientan
+  cada una hacia fuera, como dos sólidos separados. No se interpretan como un
+  sólido con cavidad, igual que en SketchUp.
+- En geometría no-manifold —dos volúmenes que comparten una cara— la
+  orientación no se propaga a través de las aristas compartidas por tres caras.
+  El panel de información sólo muestra el volumen cuando la selección forma un
+  sólido cerrado de verdad, así que nunca da una cifra engañosa.
+- El coste de reconstruir un plano crece con el número de aristas que contiene.
+  Con unos cientos de rectángulos coplanares cada operación cuesta pocos
+  milisegundos; un plano con muchos miles de aristas se nota.

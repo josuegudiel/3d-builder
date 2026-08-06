@@ -193,8 +193,19 @@ function rebuildPlane(geo: Geometry, plane: Plane, opts: RebuildOptions): Rebuil
   // criterio que usa `edgesOnPlane`, de modo que nunca puede ocurrir que las
   // aristas de una cara entren en el arreglo y la cara se quede fuera de la
   // lista de existentes: eso dejaría dos caras coplanares superpuestas.
+  //
+  // Las candidatas salen de las propias aristas del plano: una cara contenida
+  // en él tiene todas sus aristas ahí, así que aparece necesariamente. Evita
+  // recorrer todas las caras del modelo en cada plano.
+  const candidateFaces = new Set<Id>();
+  for (const eid of edgeIds) {
+    for (const fid of geo.edgeFaces.get(eid) ?? []) candidateFaces.add(fid);
+  }
+
   const existing: Id[] = [];
-  for (const f of geo.faces.values()) {
+  for (const fid of candidateFaces) {
+    const f = geo.faces.get(fid);
+    if (!f) continue;
     let onPlane = true;
     for (const loop of f.loops) {
       for (const v of loop.vertices) {
@@ -206,12 +217,29 @@ function rebuildPlane(geo: Geometry, plane: Plane, opts: RebuildOptions): Rebuil
       }
       if (!onPlane) break;
     }
-    if (onPlane) existing.push(f.id);
+    if (onPlane) existing.push(fid);
   }
 
   if (edgeIds.length === 0) {
-    for (const id of existing) geo.removeFace(id);
-    return { created: [], removed: existing, kept: [] };
+    // Sin aristas en el plano no puede quedar ninguna cara. Aquí sí hace falta
+    // el barrido completo: no hay aristas de las que partir.
+    const orphans: Id[] = [];
+    for (const f of geo.faces.values()) {
+      let onPlane = f.loops.length > 0;
+      for (const loop of f.loops) {
+        for (const v of loop.vertices) {
+          const p = geo.vertices.get(v);
+          if (!p || !planeContains(plane, p.p, PLANE_EPS)) {
+            onPlane = false;
+            break;
+          }
+        }
+        if (!onPlane) break;
+      }
+      if (onPlane) orphans.push(f.id);
+    }
+    for (const id of orphans) geo.removeFace(id);
+    return { created: [], removed: orphans, kept: [] };
   }
 
   const arr = computeArrangement(geo, plane, edgeIds);

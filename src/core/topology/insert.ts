@@ -120,6 +120,11 @@ function replaceEdgeInLoop(
     const verts = forward ? [...chain] : [...chain].reverse();
     const seq = forward ? [...subEdges] : [...subEdges].reverse();
 
+    // Si por cualquier motivo la cadena de vértices y la de subaristas no
+    // encajan, es preferible dejar el bucle intacto que romper el invariante
+    // `vertices[i] = origen de edges[i]`, que sí detectaría `validate()`.
+    if (seq.length !== verts.length - 1) return;
+
     const dirs: boolean[] = [];
     for (let i = 0; i < seq.length; i++) {
       const se = geo.edges.get(seq[i]);
