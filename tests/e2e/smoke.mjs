@@ -327,7 +327,50 @@ async function main() {
   check('el ciclo guardar/cargar conserva el modelo', exports.roundTrip);
 
   // -------------------------------------------------------------------------
-  console.log('\n10. Estado final');
+  console.log('\n10. Elementos del entorno: cada capa debe pintar píxeles');
+
+  /**
+   * Cuenta los colores distintos del lienzo. Sirve para detectar capas que se
+   * envían a dibujar pero no llegan a rasterizar ningún fragmento — un fallo
+   * que ninguna prueba unitaria puede ver.
+   */
+  const paletteSize = () => page.evaluate(() => {
+    const vp = window.form3d.viewport;
+    vp.forceRender();
+    const cvs = vp.renderer.domElement;
+    const tmp = document.createElement('canvas');
+    tmp.width = cvs.width;
+    tmp.height = cvs.height;
+    const ctx = tmp.getContext('2d');
+    ctx.drawImage(cvs, 0, 0);
+    const d = ctx.getImageData(0, 0, cvs.width, cvs.height).data;
+    const seen = new Set();
+    for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]},${d[i + 3]}`);
+    return seen.size;
+  });
+
+  const setLayer = (name, value) => page.evaluate(([n, v]) => {
+    window.form3d.viewport.options[n] = v;
+    window.form3d.viewport.invalidate();
+  }, [name, value]);
+
+  await page.evaluate(() => window.form3d.editor.replaceModel(new (window.form3d.editor.model.constructor)()));
+  await page.waitForTimeout(200);
+
+  for (const layer of ['showGrid', 'showAxes', 'showGround']) {
+    await setLayer(layer, false);
+    await page.waitForTimeout(150);
+    const without = await paletteSize();
+    await setLayer(layer, true);
+    await page.waitForTimeout(150);
+    const with_ = await paletteSize();
+    check(`la capa ${layer} cambia lo que se dibuja`, with_ !== without,
+      `${without} colores sin ella, ${with_} con ella`);
+  }
+  await shot(page, '10-entorno');
+
+  // -------------------------------------------------------------------------
+  console.log('\n11. Estado final');
   check('sin errores de consola en toda la sesión',
     consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 

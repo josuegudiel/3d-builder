@@ -40,9 +40,10 @@ export class Viewport {
   options: ViewportOptions = { ...DEFAULT_VIEWPORT_OPTIONS };
 
   private ground: THREE.Mesh | null = null;
-  private gridLines: THREE.LineSegments | null = null;
+  private gridLines: LineSegments2 | null = null;
   private axisLines: LineSegments2 | null = null;
   private axisMaterial: LineMaterial;
+  private gridMaterial: LineMaterial;
   private sun: THREE.DirectionalLight;
   private ambient: THREE.HemisphereLight;
 
@@ -86,6 +87,19 @@ export class Viewport {
       transparent: true,
       opacity: 0.9,
     });
+    // La rejilla usa el mismo camino de dibujo que las aristas y los ejes
+    // (LineSegments2). Las líneas GL nativas de `LineBasicMaterial` tienen un
+    // grosor que los controladores ignoran y, en el renderizador por software
+    // que se usa en las pruebas, ni siquiera producen fragmentos.
+    this.gridMaterial = new LineMaterial({
+      vertexColors: true,
+      linewidth: 1,
+      worldUnits: false,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+      alphaToCoverage: true,
+    });
 
     this.scene.add(this.builder.group);
     this.scene.add(this.overlay.group);
@@ -113,6 +127,7 @@ export class Viewport {
     this.builder.setResolution(this.width * ratio, this.height * ratio);
     this.overlay.setResolution(this.width * ratio, this.height * ratio);
     this.axisMaterial.resolution.set(this.width * ratio, this.height * ratio);
+    this.gridMaterial.resolution.set(this.width * ratio, this.height * ratio);
     this.dirty = true;
   }
 
@@ -240,7 +255,10 @@ export class Viewport {
 
     if (this.ground) {
       this.ground.visible = this.options.showGround;
-      this.ground.position.set(ctl.target.x, ctl.target.y, 0);
+      // El suelo se hunde una fracción diminuta del encuadre para que la
+      // rejilla, que vive exactamente en z = 0, no compita con él por el
+      // z-buffer. El desplazamiento es imperceptible a cualquier zoom.
+      this.ground.position.set(ctl.target.x, ctl.target.y, -span * 2e-4);
       const r = span * 60;
       this.ground.scale.set(r, r, 1);
     }
@@ -272,7 +290,6 @@ export class Viewport {
     if (this.gridLines) {
       this.scene.remove(this.gridLines);
       this.gridLines.geometry.dispose();
-      (this.gridLines.material as THREE.Material).dispose();
     }
 
     const half = 60;
@@ -288,13 +305,10 @@ export class Viewport {
       positions.push(-extent, p, 0, extent, p, 0);
       for (let k = 0; k < 4; k++) colors.push(c.r, c.g, c.b);
     }
-    const geom = new THREE.BufferGeometry();
-    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    const mat = new THREE.LineBasicMaterial({
-      vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false,
-    });
-    this.gridLines = new THREE.LineSegments(geom, mat);
+    const geom = new LineSegmentsGeometry();
+    geom.setPositions(positions);
+    geom.setColors(colors);
+    this.gridLines = new LineSegments2(geom, this.gridMaterial);
     this.gridLines.renderOrder = -1;
     this.gridLines.visible = this.options.showGrid;
     this.gridLines.position.set(
@@ -331,6 +345,7 @@ export class Viewport {
     this.builder.dispose();
     this.overlay.dispose();
     this.axisMaterial.dispose();
+    this.gridMaterial.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }

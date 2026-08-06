@@ -27,8 +27,8 @@ export const THEME = {
   axisYLight: '#9fd3ad',
   axisZLight: '#a3bcd6',
 
-  grid: '#c8c8c2',
-  gridMajor: '#a9a9a2',
+  grid: '#b2b2a8',
+  gridMajor: '#83837a',
 
   inferenceEndpoint: '#1a9c3c',
   inferenceMidpoint: '#3aa8d8',
