@@ -193,10 +193,11 @@ export class Viewport {
 
   private buildGround(): void {
     const geom = new THREE.CircleGeometry(1, 96);
-    const mat = new THREE.MeshBasicMaterial({
+    // Lambert (no Basic) para que el plano del suelo reciba las sombras.
+    const mat = new THREE.MeshLambertMaterial({
       color: hexToInt(THEME.ground),
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.92,
       depthWrite: false,
       side: THREE.DoubleSide,
     });

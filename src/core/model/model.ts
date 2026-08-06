@@ -1,8 +1,31 @@
 import { Geometry, IdAllocator } from './geometry';
 import { Id, Instance, Material, DefinitionKind } from './types';
 import { Mat4, IDENTITY, matMul, transformPoint } from '../math/mat';
+import { Vec3 } from '../math/vec';
 import { Box3, emptyBox, expandBox, unionBox, boxCorners, boxIsEmpty } from '../math/geom';
 import { UnitSettings, DEFAULT_UNITS } from '../units';
+
+/**
+ * Cota acotada entre dos puntos del modelo. Se guarda en el espacio del modelo
+ * raíz; `offset` separa la línea de cota del segmento medido.
+ */
+export interface Dimension {
+  readonly id: Id;
+  a: Vec3;
+  b: Vec3;
+  offset: Vec3;
+  /** Texto propio; si está vacío se muestra la longitud medida. */
+  text: string;
+}
+
+/** Línea o punto de guía (construcción), como los del Metro de SketchUp. */
+export interface Guide {
+  readonly id: Id;
+  kind: 'line' | 'point';
+  a: Vec3;
+  /** Segundo extremo para las guías de línea. */
+  b: Vec3;
+}
 
 export interface Definition {
   readonly id: Id;
@@ -23,6 +46,10 @@ export class Model {
   readonly ids = new IdAllocator(1);
   readonly definitions = new Map<Id, Definition>();
   readonly materials = new Map<string, Material>();
+  /** Cotas del modelo, en el espacio raíz. */
+  readonly dimensions = new Map<Id, Dimension>();
+  /** Guías de construcción, en el espacio raíz. */
+  readonly guides = new Map<Id, Guide>();
 
   /** Id de la definición raíz (el "espacio del modelo"). */
   readonly rootId: Id;
@@ -109,6 +136,25 @@ export class Model {
       }
     };
     walk(this.rootGeometry);
+  }
+
+  /** Añade una cota y devuelve su identificador. */
+  addDimension(a: Vec3, b: Vec3, offset: Vec3, text = ''): Id {
+    const id = this.ids.alloc();
+    this.dimensions.set(id, { id, a, b, offset, text });
+    return id;
+  }
+
+  /** Añade una guía de construcción. */
+  addGuide(kind: 'line' | 'point', a: Vec3, b: Vec3 = a): Id {
+    const id = this.ids.alloc();
+    this.guides.set(id, { id, kind, a, b });
+    return id;
+  }
+
+  /** Borra todas las guías (equivale a "Eliminar guías"). */
+  clearGuides(): void {
+    this.guides.clear();
   }
 
   materialOrDefault(id: string | null): Material | null {

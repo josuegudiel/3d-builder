@@ -42,10 +42,19 @@ export interface PickVertex {
   active: boolean;
 }
 
+export interface SceneLabel {
+  text: string;
+  position: Vec3;
+  kind: 'dimension';
+  id: Id;
+}
+
 export interface PickCache {
   triangles: PickTriangle[];
   segments: PickSegment[];
   vertices: PickVertex[];
+  /** Textos anclados en el espacio 3D (cotas). */
+  labels: SceneLabel[];
   /** Caja envolvente en coordenadas del mundo de cada instancia visible. */
   instanceBoxes: Array<{ instanceId: Id; path: Id[]; box: Box3; active: boolean }>;
   bounds: Box3;
@@ -131,13 +140,15 @@ export class SceneBuilder {
   private edgeLines: LineSegments2 | null = null;
   private profileLines: LineSegments2 | null = null;
   private selectedLines: LineSegments2 | null = null;
+  private guideLines: LineSegments2 | null = null;
 
   private edgeMaterial: LineMaterial;
   private profileMaterial: LineMaterial;
   private selectedMaterial: LineMaterial;
+  private guideMaterial: LineMaterial;
 
   pick: PickCache = {
-    triangles: [], segments: [], vertices: [], instanceBoxes: [], bounds: emptyBox(),
+    triangles: [], segments: [], vertices: [], labels: [], instanceBoxes: [], bounds: emptyBox(),
   };
 
   constructor() {
@@ -165,12 +176,25 @@ export class SceneBuilder {
       alphaToCoverage: true,
       depthTest: false,
     });
+    this.guideMaterial = new LineMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      linewidth: LINE_WIDTH.guide,
+      worldUnits: false,
+      dashed: true,
+      dashSize: 5,
+      gapSize: 4,
+      transparent: true,
+      opacity: 0.85,
+      alphaToCoverage: true,
+    });
   }
 
   setResolution(width: number, height: number): void {
     this.edgeMaterial.resolution.set(width, height);
     this.profileMaterial.resolution.set(width, height);
     this.selectedMaterial.resolution.set(width, height);
+    this.guideMaterial.resolution.set(width, height);
   }
 
   dispose(): void {
@@ -178,6 +202,7 @@ export class SceneBuilder {
     this.edgeMaterial.dispose();
     this.profileMaterial.dispose();
     this.selectedMaterial.dispose();
+    this.guideMaterial.dispose();
   }
 
   private clear(): void {
@@ -186,7 +211,8 @@ export class SceneBuilder {
       const anyChild = child as unknown as { geometry?: THREE.BufferGeometry; material?: THREE.Material };
       anyChild.geometry?.dispose();
       if (anyChild.material && anyChild.material !== this.edgeMaterial
-        && anyChild.material !== this.profileMaterial && anyChild.material !== this.selectedMaterial) {
+        && anyChild.material !== this.profileMaterial && anyChild.material !== this.selectedMaterial
+        && anyChild.material !== this.guideMaterial) {
         anyChild.material.dispose();
       }
     }
@@ -197,6 +223,7 @@ export class SceneBuilder {
     this.edgeLines = null;
     this.profileLines = null;
     this.selectedLines = null;
+    this.guideLines = null;
   }
 
   /** Reconstruye toda la escena a partir del modelo. */
@@ -208,9 +235,10 @@ export class SceneBuilder {
     const edges = newEdgeBatch();
     const profiles = newEdgeBatch();
     const selected = newEdgeBatch();
+    const guides = newEdgeBatch();
 
     const pick: PickCache = {
-      triangles: [], segments: [], vertices: [], instanceBoxes: [], bounds: emptyBox(),
+      triangles: [], segments: [], vertices: [], labels: [], instanceBoxes: [], bounds: emptyBox(),
     };
 
     const contextPath = [...options.context];
@@ -227,6 +255,10 @@ export class SceneBuilder {
       pick,
       new Set(),
     );
+
+    // --- Cotas y guías (viven en el espacio raíz) --------------------------
+    buildDimensions(model, guides, pick);
+    buildGuides(model, guides);
 
     this.pick = pick;
 
@@ -272,6 +304,12 @@ export class SceneBuilder {
       this.selectedLines = makeLines(selected, this.selectedMaterial);
       this.selectedLines.renderOrder = 5;
       this.group.add(this.selectedLines);
+    }
+    if (guides.positions.length > 0) {
+      this.guideLines = makeLines(guides, this.guideMaterial);
+      this.guideLines.computeLineDistances();
+      this.guideLines.renderOrder = 4;
+      this.group.add(this.guideLines);
     }
   }
 
@@ -532,3 +570,74 @@ function addBoxEdges(batch: EdgeBatch, box: Box3, color: [number, number, number
 }
 
 export { hexToInt };
+
+
+// ---------------------------------------------------------------------------
+// Cotas y guías
+// ---------------------------------------------------------------------------
+
+/**
+ * Dibuja las cotas: líneas de referencia desde los puntos medidos, línea de
+ * cota desplazada y marcas en los extremos. El texto lo coloca la interfaz.
+ */
+function buildDimensions(model: Model, batch: EdgeBatch, pick: PickCache): void {
+  const color = colorOf(THEME.dimension);
+  for (const dim of model.dimensions.values()) {
+    const a = dim.a;
+    const b = dim.b;
+    const off = dim.offset;
+    const a2 = { x: a.x + off.x, y: a.y + off.y, z: a.z + off.z };
+    const b2 = { x: b.x + off.x, y: b.y + off.y, z: b.z + off.z };
+
+    pushSeg(batch, a, a2, color);
+    pushSeg(batch, b, b2, color);
+    pushSeg(batch, a2, b2, color);
+
+    // Marcas oblicuas en los extremos de la línea de cota.
+    const dx = b2.x - a2.x;
+    const dy = b2.y - a2.y;
+    const dz = b2.z - a2.z;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    const ox = Math.hypot(off.x, off.y, off.z) || 1;
+    const tick = Math.min(len, ox) * 0.12;
+    const ux = (dx / len) * tick;
+    const uy = (dy / len) * tick;
+    const uz = (dz / len) * tick;
+    const vx = (off.x / ox) * tick;
+    const vy = (off.y / ox) * tick;
+    const vz = (off.z / ox) * tick;
+    pushSeg(batch,
+      { x: a2.x - ux - vx, y: a2.y - uy - vy, z: a2.z - uz - vz },
+      { x: a2.x + ux + vx, y: a2.y + uy + vy, z: a2.z + uz + vz }, color);
+    pushSeg(batch,
+      { x: b2.x - ux - vx, y: b2.y - uy - vy, z: b2.z - uz - vz },
+      { x: b2.x + ux + vx, y: b2.y + uy + vy, z: b2.z + uz + vz }, color);
+
+    pick.labels.push({
+      text: dim.text,
+      position: { x: (a2.x + b2.x) / 2, y: (a2.y + b2.y) / 2, z: (a2.z + b2.z) / 2 },
+      kind: 'dimension',
+      id: dim.id,
+    });
+  }
+}
+
+/** Dibuja las guías de construcción con trazo discontinuo. */
+function buildGuides(model: Model, batch: EdgeBatch): void {
+  const color = colorOf(THEME.guide);
+  for (const g of model.guides.values()) {
+    if (g.kind === 'point') {
+      const s = 0.02;
+      pushSeg(batch, { x: g.a.x - s, y: g.a.y, z: g.a.z }, { x: g.a.x + s, y: g.a.y, z: g.a.z }, color);
+      pushSeg(batch, { x: g.a.x, y: g.a.y - s, z: g.a.z }, { x: g.a.x, y: g.a.y + s, z: g.a.z }, color);
+      pushSeg(batch, { x: g.a.x, y: g.a.y, z: g.a.z - s }, { x: g.a.x, y: g.a.y, z: g.a.z + s }, color);
+    } else {
+      pushSeg(batch, g.a, g.b, color);
+    }
+  }
+}
+
+function pushSeg(batch: EdgeBatch, a: Vec3, b: Vec3, c: [number, number, number]): void {
+  batch.positions.push(a.x, a.y, a.z, b.x, b.y, b.z);
+  batch.colors.push(c[0], c[1], c[2], c[0], c[1], c[2]);
+}

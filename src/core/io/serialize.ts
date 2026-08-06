@@ -95,6 +95,21 @@ export interface DefinitionData {
   geometry: GeometryData;
 }
 
+export interface DimensionData {
+  id: Id;
+  a: [number, number, number];
+  b: [number, number, number];
+  offset: [number, number, number];
+  text: string;
+}
+
+export interface GuideData {
+  id: Id;
+  kind: 'line' | 'point';
+  a: [number, number, number];
+  b: [number, number, number];
+}
+
 export interface ModelFile {
   /** Siempre "form3d". */
   format: string;
@@ -108,6 +123,10 @@ export interface ModelFile {
   nextId: number;
   materials: Material[];
   definitions: DefinitionData[];
+  /** Cotas del modelo (opcional en archivos antiguos). */
+  dimensions: DimensionData[];
+  /** Guías de construcción (opcional en archivos antiguos). */
+  guides: GuideData[];
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +211,24 @@ export function serializeModel(model: Model): ModelFile {
     nextId: model.ids.peek(),
     materials,
     definitions,
+    dimensions: [...model.dimensions.values()].map((d) => ({
+      id: d.id,
+      a: vecToTuple(d.a),
+      b: vecToTuple(d.b),
+      offset: vecToTuple(d.offset),
+      text: d.text,
+    })),
+    guides: [...model.guides.values()].map((g) => ({
+      id: g.id,
+      kind: g.kind,
+      a: vecToTuple(g.a),
+      b: vecToTuple(g.b),
+    })),
   };
+}
+
+function vecToTuple(v: { x: number; y: number; z: number }): [number, number, number] {
+  return [v.x, v.y, v.z];
 }
 
 /** Serializa el modelo a texto JSON. `indent` 0 = compacto. */
@@ -428,7 +464,34 @@ function readModelFile(data: ModelFile | string): ModelFile {
     nextId,
     materials,
     definitions,
+    dimensions: reqArray(o.dimensions ?? [], 'dimensions').map((rd, k) => {
+      const d = reqObject(rd, `dimensions[${k}]`);
+      return {
+        id: reqInt(d.id, `dimensions[${k}].id`),
+        a: readVec(d.a, `dimensions[${k}].a`),
+        b: readVec(d.b, `dimensions[${k}].b`),
+        offset: readVec(d.offset, `dimensions[${k}].offset`),
+        text: optString(d.text, `dimensions[${k}].text`, ''),
+      };
+    }),
+    guides: reqArray(o.guides ?? [], 'guides').map((rg, k) => {
+      const g = reqObject(rg, `guides[${k}]`);
+      const kind = optString(g.kind, `guides[${k}].kind`, 'line');
+      return {
+        id: reqInt(g.id, `guides[${k}].id`),
+        kind: kind === 'point' ? ('point' as const) : ('line' as const),
+        a: readVec(g.a, `guides[${k}].a`),
+        b: readVec(g.b, `guides[${k}].b`),
+      };
+    }),
   };
+}
+
+/** Lee una terna numérica validando su forma. */
+function readVec(value: unknown, tag: string): [number, number, number] {
+  const arr = reqArray(value, tag);
+  if (arr.length < 3) throw new Error(`Archivo Form3D no válido: ${tag} debe tener 3 componentes`);
+  return [reqNumber(arr[0], `${tag}[0]`), reqNumber(arr[1], `${tag}[1]`), reqNumber(arr[2], `${tag}[2]`)];
 }
 
 /**
@@ -534,6 +597,28 @@ export function deserializeModel(data: ModelFile | string): Model {
   for (const m of file.materials) model.materials.set(m.id, { ...m });
   model.units = { ...file.units };
   model.name = file.name;
+
+  model.dimensions.clear();
+  for (const d of file.dimensions) {
+    model.dimensions.set(d.id, {
+      id: d.id,
+      a: { x: d.a[0], y: d.a[1], z: d.a[2] },
+      b: { x: d.b[0], y: d.b[1], z: d.b[2] },
+      offset: { x: d.offset[0], y: d.offset[1], z: d.offset[2] },
+      text: d.text,
+    });
+    if (d.id > maxId) maxId = d.id;
+  }
+  model.guides.clear();
+  for (const g of file.guides) {
+    model.guides.set(g.id, {
+      id: g.id,
+      kind: g.kind,
+      a: { x: g.a[0], y: g.a[1], z: g.a[2] },
+      b: { x: g.b[0], y: g.b[1], z: g.b[2] },
+    });
+    if (g.id > maxId) maxId = g.id;
+  }
 
   // 6) El asignador queda por encima de todo lo usado (y de `nextId`).
   model.ids.reset(Math.max(model.ids.peek(), file.nextId, maxId + 1));
