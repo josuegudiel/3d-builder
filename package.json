@@ -1,0 +1,26 @@
+{
+  "name": "form3d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Form3D - modelador 3D directo estilo SketchUp para el navegador",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "earcut": "^3.0.1",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/earcut": "^2.1.4",
+    "@types/three": "^0.180.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5",
+    "vitest": "^3.2.4"
+  }
+}
