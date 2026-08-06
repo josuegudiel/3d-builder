@@ -4,6 +4,9 @@ import { Vec3 } from '../core/math/vec';
 import { Plane } from '../core/math/plane';
 import { InferenceHit, infer } from '../pick/inference';
 import { AXIS_X, AXIS_Y, AXIS_Z } from '../core/math/vec';
+import { Id } from '../core/model/types';
+import { THEME } from '../render/theme';
+import { triangulateFace } from '../core/topology/triangulate';
 
 /** Interfaz común a todas las herramientas. */
 export interface Tool {
@@ -57,6 +60,15 @@ export abstract class BaseTool implements Tool {
   protected referenceDirection: Vec3 | null = null;
   /** Alt desactiva el enganche mientras está pulsado. */
   protected snapDisabled = false;
+  /**
+   * Entidad resaltada bajo el cursor.
+   *
+   * Se dibuja en la capa de superposición, NO marcándola en el modelo: teñir
+   * la entidad exigiría reconstruir toda la escena en cada movimiento del
+   * ratón, mientras que la superposición ya se rehace en cada frame y cuesta
+   * unas pocas líneas.
+   */
+  protected hovered: { kind: 'face' | 'edge' | 'instance'; id: Id } | null = null;
 
   constructor(protected readonly editor: Editor) {}
 
@@ -75,6 +87,68 @@ export abstract class BaseTool implements Tool {
     this.lockedAxis = null;
     this.workPlane = null;
     this.referenceDirection = null;
+    this.hovered = null;
+  }
+
+  /**
+   * Actualiza la entidad resaltada y redibuja sólo la superposición si ha
+   * cambiado. Devuelve true si hubo cambio.
+   */
+  protected setHovered(next: { kind: 'face' | 'edge' | 'instance'; id: Id } | null): boolean {
+    const prev = this.hovered;
+    if (prev?.id === next?.id && prev?.kind === next?.kind) return false;
+    this.hovered = next;
+    this.editor.refreshOverlay();
+    return true;
+  }
+
+  /** Dibuja el resaltado de la entidad señalada. */
+  protected drawHover(overlay: Overlay): void {
+    const h = this.hovered;
+    if (!h) return;
+    const geo = this.editor.geometry;
+
+    if (h.kind === 'face') {
+      const face = geo.faces.get(h.id);
+      if (!face) return;
+      for (const loop of face.loops) {
+        overlay.addPolyline(
+          loop.vertices.map((v) => this.world(geo.vertexPos(v))),
+          THEME.highlight, true,
+        );
+      }
+      const tri = triangulateFace(geo, h.id);
+      if (tri) {
+        for (let i = 0; i < tri.indices.length; i += 3) {
+          overlay.addGhostPolygon([
+            this.world(tri.positions[tri.indices[i]]),
+            this.world(tri.positions[tri.indices[i + 1]]),
+            this.world(tri.positions[tri.indices[i + 2]]),
+          ], THEME.highlight);
+        }
+      }
+      return;
+    }
+
+    if (h.kind === 'edge') {
+      const e = geo.edges.get(h.id);
+      if (!e) return;
+      overlay.addLine(
+        this.world(geo.vertexPos(e.a)),
+        this.world(geo.vertexPos(e.b)),
+        THEME.highlight,
+      );
+      return;
+    }
+
+    const inst = geo.instances.get(h.id);
+    if (!inst) return;
+    const corners = this.editor.model.instanceBoxCorners(inst).map((c) => this.world(c));
+    const pairs: Array<[number, number]> = [
+      [0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4],
+      [0, 4], [1, 5], [2, 6], [3, 7],
+    ];
+    for (const [i, j] of pairs) overlay.addLine(corners[i], corners[j], THEME.highlight);
   }
 
   cancel(): void {
@@ -174,6 +248,7 @@ export abstract class BaseTool implements Tool {
   }
 
   drawOverlay(overlay: Overlay): void {
+    this.drawHover(overlay);
     this.drawInference(overlay);
   }
 }

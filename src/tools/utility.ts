@@ -48,11 +48,7 @@ export class EraserTool extends BaseTool {
         this.editor.viewport.builder.pick, this.editor.viewport, e.clientX, e.clientY,
         { vertices: false, faces: false },
       );
-      const hover = hit ? { kind: hit.kind as 'edge' | 'instance', id: hit.id } : null;
-      if (hover?.id !== this.editor.renderOptions.hover?.id) {
-        this.editor.renderOptions.hover = hover;
-        this.editor.refreshModel();
-      }
+      this.setHovered(hit ? { kind: hit.kind as 'edge' | 'instance', id: hit.id } : null);
       return;
     }
     this.markAt(e);
@@ -106,11 +102,12 @@ export class EraserTool extends BaseTool {
 
     this.marked.clear();
     this.markedInstances.clear();
-    this.editor.renderOptions.hover = null;
+    this.setHovered(null);
     this.editor.refreshModel();
   }
 
   override drawOverlay(overlay: Overlay): void {
+    this.drawHover(overlay);
     const geo = this.editor.geometry;
     for (const id of this.marked) {
       const e = geo.edges.get(id);
@@ -142,11 +139,7 @@ export class PaintTool extends BaseTool {
     const hit = pickFace(
       this.editor.viewport.builder.pick, this.editor.viewport, e.clientX, e.clientY,
     );
-    const id = hit ? hit.id : null;
-    if (id !== this.editor.renderOptions.hover?.id) {
-      this.editor.renderOptions.hover = id !== null ? { kind: 'face', id } : null;
-      this.editor.refreshModel();
-    }
+    this.setHovered(hit ? { kind: 'face', id: hit.id } : null);
   }
 
   override onPointerDown(e: PointerInfo): void {

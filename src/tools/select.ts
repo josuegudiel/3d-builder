@@ -58,19 +58,13 @@ export class SelectTool extends BaseTool {
       return;
     }
 
-    // Resaltado bajo el cursor.
+    // Resaltado bajo el cursor, dibujado en la superposición.
     const hit = pickEntity(
       this.editor.viewport.builder.pick, this.editor.viewport, e.clientX, e.clientY,
     );
-    const hover = hit
+    this.setHovered(hit
       ? { kind: hit.kind === 'vertex' ? 'edge' as const : hit.kind, id: hit.id }
-      : null;
-    const prev = this.editor.renderOptions.hover;
-    const changed = (prev?.id !== hover?.id) || (prev?.kind !== hover?.kind);
-    if (changed) {
-      this.editor.renderOptions.hover = hover as never;
-      this.editor.refreshModel();
-    }
+      : null);
     this.editor.events.onTooltip?.('', e.clientX, e.clientY);
   }
 
@@ -208,7 +202,8 @@ export class SelectTool extends BaseTool {
     return false;
   }
 
-  override drawOverlay(_overlay: Overlay): void {
+  override drawOverlay(overlay: Overlay): void {
     // La ventana de selección se dibuja en HTML, no en la escena 3D.
+    this.drawHover(overlay);
   }
 }

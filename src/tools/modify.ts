@@ -34,7 +34,6 @@ export class PushPullTool extends BaseTool {
   readonly statusHint = 'Clic en una cara y arrastra. Escribe la distancia para un valor exacto. Ctrl crea geometría nueva.';
 
   private faceId: Id | null = null;
-  private hoverFace: Id | null = null;
   private startPoint: Vec3 | null = null;
   private normalWorld: Vec3 = AXIS_Z;
   private currentDistance = 0;
@@ -48,12 +47,7 @@ export class PushPullTool extends BaseTool {
       const hit = pickFace(
         this.editor.viewport.builder.pick, this.editor.viewport, e.clientX, e.clientY,
       );
-      const id = hit ? hit.id : null;
-      if (id !== this.hoverFace) {
-        this.hoverFace = id;
-        this.editor.renderOptions.hover = id !== null ? { kind: 'face', id } : null;
-        this.editor.refreshModel();
-      }
+      this.setHovered(hit ? { kind: 'face', id: hit.id } : null);
       return;
     }
 
@@ -128,13 +122,14 @@ export class PushPullTool extends BaseTool {
     this.faceId = null;
     this.startPoint = null;
     this.currentDistance = 0;
-    this.hoverFace = null;
-    this.editor.renderOptions.hover = null;
     super.cancel();
   }
 
   override drawOverlay(overlay: Overlay): void {
-    if (this.faceId === null || !this.startPoint) return;
+    if (this.faceId === null || !this.startPoint) {
+      this.drawHover(overlay);
+      return;
+    }
     const face = this.editor.geometry.faces.get(this.faceId);
     if (!face) return;
 
@@ -690,11 +685,7 @@ export class OffsetTool extends BaseTool {
       const hit = pickFace(
         this.editor.viewport.builder.pick, this.editor.viewport, e.clientX, e.clientY,
       );
-      const id = hit ? hit.id : null;
-      if (id !== this.editor.renderOptions.hover?.id) {
-        this.editor.renderOptions.hover = id !== null ? { kind: 'face', id } : null;
-        this.editor.refreshModel();
-      }
+      this.setHovered(hit ? { kind: 'face', id: hit.id } : null);
       return;
     }
 
@@ -732,8 +723,7 @@ export class OffsetTool extends BaseTool {
       );
       if (!hit) return;
       this.faceId = hit.id;
-      this.editor.renderOptions.hover = { kind: 'face', id: hit.id };
-      this.editor.refreshModel();
+      this.setHovered({ kind: 'face', id: hit.id });
       return;
     }
     this.apply(this.distance);
@@ -775,11 +765,11 @@ export class OffsetTool extends BaseTool {
     this.faceId = null;
     this.previewRing = [];
     this.distance = 0;
-    this.editor.renderOptions.hover = null;
     super.cancel();
   }
 
   override drawOverlay(overlay: Overlay): void {
+    this.drawHover(overlay);
     if (this.previewRing.length >= 3) {
       overlay.addPolyline(this.previewRing, THEME.selection, true);
     }
@@ -803,11 +793,7 @@ export class FollowMeTool extends BaseTool {
     const hit = pickFace(
       this.editor.viewport.builder.pick, this.editor.viewport, e.clientX, e.clientY,
     );
-    const id = hit ? hit.id : null;
-    if (id !== this.editor.renderOptions.hover?.id) {
-      this.editor.renderOptions.hover = id !== null ? { kind: 'face', id } : null;
-      this.editor.refreshModel();
-    }
+    this.setHovered(hit ? { kind: 'face', id: hit.id } : null);
   }
 
   override onPointerDown(e: PointerInfo): void {
@@ -828,7 +814,7 @@ export class FollowMeTool extends BaseTool {
       followMe(this.editor.geometry, hit.id, path);
     });
     clearSelection(this.editor.selection);
-    this.editor.renderOptions.hover = null;
+    this.setHovered(null);
     this.editor.refreshModel();
   }
 }
