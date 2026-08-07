@@ -14,6 +14,7 @@ from dibujo import (Hoja, nuevo, escala, PAGINA, GRIS, GRIS_CLARO, ROJO, AZUL,
                     CREMA, VERDE, MARGEN)
 
 SALIDA = 'Bubble_Barn_Plano_Rectificado.pdf'
+N_CHECKS = len(comprobar()[1])
 W, H = PAGINA
 AREA = (MARGEN + 12, MARGEN + 12, W - MARGEN - 12, H - MARGEN - 12)
 
@@ -104,7 +105,8 @@ def hoja_A0(c):
          '67.5° y 22.5° (suman 90°): UN SOLO reglaje de 22.5° para toda la cercha.'),
         ('4', 'Cabios', 'Dos piezas distintas, 29 3/16" y 27 13/16", mal '
          'redondeadas.',
-         f'UNA SOLA PIEZA de {frac(CUERDA)}, repetida {D.N_CABIOS} veces.'),
+         f'DOS piezas exactas: {frac(CUERDA_BAJA)} y {frac(CUERDA_ALTA)}, '
+         f'{D.N_CABIOS_BAJOS} y {D.N_CABIOS_ALTOS} unidades.'),
         ('5', 'Tirante de rodilla', '50 15/16", medido sobre la línea del tejado. '
          'Cortado así NO ENTRA.',
          f'{frac(TIRANTE_LARGA)} abajo y {frac(TIRANTE_CORTA)} arriba, contra la '
@@ -152,24 +154,32 @@ def hoja_A0(c):
         f'poste > anclaje.', 100), 6.2, 8.0)
 
     # --- la cubierta -------------------------------------------------------
-    h.caja(x0, 76, sum(anc), 182, relleno=CREMA, borde=ROJO, lw=1.2)
+    h.caja(x0, 58, sum(anc), 200, relleno=CREMA, borde=ROJO, lw=1.2)
     h.texto(x0 + 10, 240, 'LA CUBIERTA, QUE ES LO QUE INTERESA', 10.4,
             'Helvetica-Bold', ROJO)
     grandes = [('67.5°', f'cabio bajo · pendiente {PEND_BAJA:.2f} en 12'),
                ('22.5°', f'cabio alto · pendiente {PEND_ALTA:.2f} en 12'),
                ('22.5°', 'inglete ÚNICO de sierra, bisel 0°, tabla plana'),
-               (frac(CUERDA), f'los {D.N_CABIOS} cabios son LA MISMA pieza')]
+               ('11\'-0"', 'de alto TERMINADO, con la caperuza puesta')]
     for k, (n, t) in enumerate(grandes):
         yy2 = 218 - k * 23
         h.texto(x0 + 12, yy2, n, 15.5, 'Helvetica-Bold')
         h.texto(x0 + 84, yy2 + 3.5, t, 6.6, 'Helvetica')
-    h.parrafo(x0 + 12, 118, _envolver(
+    h.parrafo(x0 + 12, 124, _envolver(
         'Los dos ángulos suman 90°, y ésa es exactamente la condición para que el '
         'asiento, la rodilla y la cumbrera se corten con el mismo reglaje. No es una '
-        'elección estética: es el único par de pendientes que lo cumple. El original '
-        'usaba 68.8° y 23.9° (suman 92.7°) y por eso pedía tres reglajes distintos, '
-        'todos a menos de 3° entre sí: tres ocasiones de equivocarse.', 82),
-        6.2, 8.0)
+        'elección estética: es el único par que lo cumple, y no depende de la flecha.',
+        82), 6.2, 8.0)
+    c.setStrokeColor(ROJO)
+    c.setLineWidth(0.5)
+    c.line(x0 + 12, 94, x0 + sum(anc) - 12, 94)
+    h.texto(x0 + 12, 84, 'SI PREFIERES LOS CABIOS TODOS IGUALES', 7.2,
+            'Helvetica-Bold', ROJO)
+    h.parrafo(x0 + 12, 74, _envolver(
+        f'Sube la carrera de {pies(ARRANQUE_TECHO)} a 7\'-11" y deja la flecha en '
+        f'{pies(36)}: vuelven los 28 cabios idénticos de 27 9/16" y los dos arcos, '
+        f'y los 11 pies se cumplen igual. Cuesta 11" más de poste.', 92),
+        6.1, 7.8)
 
     # --- índice -------------------------------------------------------------
     hojas = [('A-0', 'Portada y resumen'), ('A-1', 'Alzado frontal'),
@@ -178,39 +188,43 @@ def hoja_A0(c):
              ('A-5', 'PLANTILLA DE LA CERCHA'),
              ('A-6', 'Detalles constructivos'), ('A-7', 'Lista de corte'),
              ('A-8', 'Compra, secuencia y seguridad')]
-    h.texto(x0, 58, 'ÍNDICE DE HOJAS', 7.6, 'Helvetica-Bold')
+    h.texto(x0, 48, 'ÍNDICE DE HOJAS', 7.4, 'Helvetica-Bold')
     for k, (n, t) in enumerate(hojas):
-        col, fila = k // 3, k % 3
-        xx, yy2 = x0 + col * 158, 46 - fila * 8.6
+        col, fila = k % 5, k // 5
+        xx, yy2 = x0 + col * 96, 38 - fila * 8.4
         h.texto(xx, yy2, n, 6.2, 'Helvetica-Bold', ROJO if n == 'A-5' else black)
-        h.texto(xx + 20, yy2, t, 6.0,
+        h.texto(xx + 19, yy2, t[:14], 5.6,
                 'Helvetica-Bold' if n == 'A-5' else 'Helvetica')
 
     # =========================  COLUMNA DERECHA  ===========================
     rx, rw = x0 + 408, 328
-    v = h.vista(escala(0.55), rx + rw / 2, 436)
+    v = h.vista(escala(0.48), rx + rw / 2, 424)
     for k, pts in PIEZAS.items():
         v.poli(pts, True, 0.7, black, white)
-    v.arco(0, 0, R, 0, 180, 0.5, AZUL, [1.8, 1.8])
-    v.arco(0, 0, R_INTERIOR, 0, 180, 0.5, AZUL, [1.4, 1.6])
+    v.linea(0, 0, 0, FLECHA, 0.4, AZUL, [3, 1.5, 1, 1.5])
+    v.linea(-MEDIA_LUZ, 0, MEDIA_LUZ, 0, 0.4, AZUL, [3, 1.5, 1, 1.5])
+    for pt in (P_RODILLA_D, P_RODILLA_I):
+        v.linea(pt[0], 0, pt[0], pt[1], 0.4, AZUL, [3, 1.5, 1, 1.5])
+        v.linea(0, pt[1], pt[0], pt[1], 0.4, AZUL, [3, 1.5, 1, 1.5])
     for (u, val) in P:
         v.circ(u, val, 1.1, 0.6, ROJO, ROJO)
-    v.texto(0, 38.5, 'LA CERCHA, EN DOS ARCOS', 7.6, 'Helvetica-Bold', AZUL, al='c')
-    v.texto(0, -14.5, f'R = {frac(R)} puntos de trabajo   ·   '
-            f'r = {frac(R_INTERIOR, 32)} esquinas interiores', 6.2, 'Helvetica',
-            AZUL, al='c')
-    v.texto(0, -21.5, 'Con esos dos arcos queda replanteada la cercha entera.',
+    v.texto(0, 52.0, 'LA CERCHA', 7.6, 'Helvetica-Bold', AZUL, al='c')
+    v.texto(0, -15.5, f'rodilla ({frac(P_RODILLA_D[0])} , {frac(P_RODILLA_D[1])})'
+            f'   ·   cumbrera (0 , {frac(FLECHA)})', 6.2, 'Helvetica', AZUL, al='c')
+    v.texto(0, -23.5, 'La plantilla se replantea por coordenadas. Ver hoja A-5.',
             6.0, 'Helvetica', GRIS, al='c')
 
-    h.caja(rx, 204, rw, 144)
-    h.texto(rx + 10, 335, 'NÚMEROS CLAVE', 8.6, 'Helvetica-Bold')
+    h.caja(rx, 192, rw, 144)
+    h.texto(rx + 10, 323, 'NÚMEROS CLAVE', 8.6, 'Helvetica-Bold')
     filas = [('Huella', f'{pies(ANCHO)} x {pies(LARGO)}'),
              ('Arranque del techo sobre el terreno', pies(Z_ARRANQUE)),
-             ('Cumbrera sobre el terreno', pies(Z_CUMBRERA)),
-             ('Flecha del gambrel', pies(FLECHA)),
+             ('ALTURA TERMINADA', pies(Z_CUMBRERA + CANTO_CUBIERTA)),
+             ('Cumbrera estructural', pies(Z_CUMBRERA)),
+             ('Flecha del gambrel', frac(FLECHA)),
              ('Cabio bajo / cabio alto', '67.5° / 22.5°'),
              ('Reglaje de la ingletadora', '22.5°, bisel 0°, tabla plana'),
-             (f'Cabio (los {D.N_CABIOS} iguales)', f'{frac(CUERDA)} punta larga'),
+             (f'Cabio bajo x{D.N_CABIOS_BAJOS} / alto x{D.N_CABIOS_ALTOS}',
+              f'{frac(CUERDA_BAJA)} / {frac(CUERDA_ALTA)}'),
              ('Cordón inferior', f'{frac(CORDON)} a escuadra'),
              ('Cerchas', f'{N_CERCHAS} a {frac(SEP_CERCHAS)} O.C.'),
              ('Superficie de cubierta', f'{AREA_CUBIERTA:.0f} sq ft'),
@@ -218,33 +232,33 @@ def hoja_A0(c):
              ('Altura de la plataforma', pies(Z_PLATAFORMA)),
              ('Paso libre bajo la carrera', pies(Z_VIGA_INF))]
     for k, (kk, val) in enumerate(filas):
-        yy2 = 322 - k * 8.6
+        yy2 = 310 - k * 8.6
         h.texto(rx + 10, yy2, kk, 6.3, 'Helvetica', GRIS)
         h.texto(rx + rw - 10, yy2, val, 6.3, 'Helvetica-Bold', al='r')
 
-    h.caja(rx, 88, rw, 106, relleno=None)
-    h.texto(rx + 10, 181, 'EL PLANO CIERRA — COMPROBADO POR CÁLCULO', 8.4,
+    h.caja(rx, 88, rw, 96, relleno=None)
+    h.texto(rx + 10, 171, 'EL PLANO CIERRA — COMPROBADO POR CÁLCULO', 8.4,
             'Helvetica-Bold')
-    h.parrafo(rx + 10, 169, [
+    h.parrafo(rx + 10, 159, [
         f'· 2 x (carrera baja + alta) = {2*(CARRERA_BAJA+CARRERA_ALTA):.6f}" '
         f'= la luz de {frac(ANCHO)}',
         f'· suma de flechas = '
         f'{CARRERA_BAJA*math.tan(ANG_BAJO)+CARRERA_ALTA*math.tan(ANG_ALTO):.6f}" '
         f'= la flecha de {frac(FLECHA)}',
-        f'· los cuatro cabios miden {CUERDA:.6f}"; canto inferior '
-        f'{CABIO_PUNTA_CORTA:.6f}"',
-        f'· las tres esquinas interiores caen en el arco de {frac(R_INTERIOR, 32)}',
+        f'· cabio bajo {CUERDA_BAJA:.4f}" y alto {CUERDA_ALTA:.4f}"',
+        f'· ALTURA TERMINADA = 84 + {FLECHA:.4f} + {CANTO_CUBIERTA:.4f} = '
+        f'{Z_CUMBRERA+CANTO_CUBIERTA:.4f}" = 11\'-0" EXACTOS',
         f'· el tirante queda {frac(P_RODILLA_D[1]-TIRANTE_V_SUP, 32)} bajo el punto '
         f'de trabajo: NO choca con el cabio',
         '  alto — el del plano original sí chocaba',
-        f'· arranque {pies(Z_ARRANQUE)} y cumbrera {pies(Z_CUMBRERA)}: las dos cotas '
-        f'redondas se cumplen a la vez',
+        f'· arranque {pies(Z_ARRANQUE)} y acabado {pies(Z_CUMBRERA+CANTO_CUBIERTA)}: '
+        f'las dos cotas del cliente a la vez',
         f'· levante de viento {LEVANTE:.0f} lb frente a '
         f'{ANCLAJES*ANCLAJE_CAPACIDAD:.0f} lb de anclajes',
         '',
-        '**28 comprobaciones automáticas, todas OK. Si alguna fallara,',
+        f'**{N_CHECKS} comprobaciones automáticas, todas OK. Si alguna fallara,',
         '**este PDF no se habría generado.',
-    ], 6.2, 7.9)
+    ], 6.1, 7.2)
     c.showPage()
 
 
@@ -255,7 +269,7 @@ def hoja_A1(c):
     h = Hoja(c, 'A-1', 'ALZADO FRONTAL', '1/2" = 1\'-0"')
     x0, y0, x1, y1 = AREA
     s = escala(0.5)
-    v = h.vista(s, x0 + 290, y0 + 120)
+    v = h.vista(s, x0 + 290, y0 + 72)
 
     terreno(v, -22, ANCHO + 22)
     # patines (testa)
@@ -295,11 +309,12 @@ def hoja_A1(c):
             for (u, val) in TEJADO], False, 0.4, GRIS)
 
     # -- cotas ---------------------------------------------------------------
-    v.cota_h(0, ANCHO, Z_ARRANQUE + FLECHA, pies(ANCHO), off=52)
-    v.cota_h(-ALERO_VUELO, ANCHO + ALERO_VUELO, Z_ARRANQUE + FLECHA,
-             f'{pies(ANCHO + 2 * ALERO_VUELO)} CON ALEROS', off=68)
+    v.cota_h(0, ANCHO, Z_CUMBRERA, pies(ANCHO), off=40)
+    v.cota_h(-ALERO_VUELO, ANCHO + ALERO_VUELO, Z_CUMBRERA,
+             f'{pies(ANCHO + 2 * ALERO_VUELO)} CON ALEROS', off=56)
     v.cota_v(0, Z_ARRANQUE, -20, pies(Z_ARRANQUE), off=-14)
-    v.cota_v(0, Z_CUMBRERA, -20, pies(Z_CUMBRERA), off=-36)
+    v.cota_v(0, Z_CUMBRERA + CANTO_CUBIERTA, -20,
+             f'{pies(Z_CUMBRERA + CANTO_CUBIERTA)} TERMINADO', off=-36)
     v.cota_v(Z_ARRANQUE, Z_CUMBRERA, ANCHO + 20, pies(FLECHA), off=16)
     v.cota_v(0, Z_PLATAFORMA, ANCHO + 20, pies(Z_PLATAFORMA), off=16)
     v.cota_v(0, Z_VIGA_INF, ANCHO + 20, f'{pies(Z_VIGA_INF)} LIBRES', off=38)
@@ -315,7 +330,8 @@ def hoja_A1(c):
            f'ALERO: vuela {frac(ALERO_VUELO)}, baja {frac(ALERO_CAIDA, 32)}', 5.6)
     v.nivel(ANCHO + 34, 0, '± 0\'-0"  TERRENO', 14)
     v.nivel(ANCHO + 34, Z_ARRANQUE, f'+ {pies(Z_ARRANQUE)}  ARRANQUE TECHO', 14)
-    v.nivel(ANCHO + 34, Z_CUMBRERA, f'+ {pies(Z_CUMBRERA)}  CUMBRERA', 14)
+    v.nivel(ANCHO + 34, Z_CUMBRERA + CANTO_CUBIERTA,
+            f'+ {pies(Z_CUMBRERA + CANTO_CUBIERTA)}  ACABADO', 14)
 
     h.titulo_vista(x0 + 200, y0 + 30, 1, 'ALZADO FRONTAL', '1/2" = 1\'-0"')
 
@@ -325,9 +341,10 @@ def hoja_A1(c):
     h.texto(px + 8, y0 + 354, 'NOTAS DEL ALZADO', 8.6, 'Helvetica-Bold')
     h.parrafo(px + 8, y0 + 340, [
         '**GEOMETRÍA DEL TECHO',
-        f'· Luz {pies(ANCHO)}. Flecha {pies(FLECHA)} = luz/2.',
-        f'· Los cinco puntos de trabajo caen en una',
-        f'  semicircunferencia de radio {frac(R)}.',
+        f'· Luz {pies(ANCHO)}. Arranque {pies(ARRANQUE_TECHO)}.',
+        f'· Flecha estructural {frac(FLECHA)}; con el canto de',
+        f'  cubierta ({frac(CANTO_CUBIERTA, 32)}) da {pies(ALTURA_TERMINADA)}',
+        '  TERMINADOS. Los 11 pies salen exactos.',
         f'· Faldón bajo 67.5° ({PEND_BAJA:.2f} en 12).',
         f'· Faldón alto 22.5° ({PEND_ALTA:.2f} en 12).',
         f'· Los dos ángulos suman 90°: por eso hay',
@@ -351,6 +368,10 @@ def hoja_A1(c):
         '  para pendiente fuerte).',
         '· Banda de arranque en el alero Y encima',
         '  de cada quiebro de rodilla.',
+        '· LOS DOS QUIEBROS SON DE 45° EN ARISTA',
+        '  VIVA y la teja asfáltica no los dobla:',
+        '  achaflana el canto del tablero o clava',
+        '  una cuña de transición (T7 y T8).',
         '',
         '**GÁLIBOS',
         f'· Bajo la carrera: {pies(Z_VIGA_INF)}.',
@@ -368,7 +389,7 @@ def hoja_A2(c):
     h = Hoja(c, 'A-2', 'ALZADO LATERAL', '1/2" = 1\'-0"')
     x0, y0, x1, y1 = AREA
     s = escala(0.5)
-    v = h.vista(s, x0 + 232, y0 + 120)
+    v = h.vista(s, x0 + 232, y0 + 72)
 
     terreno(v, -26, LARGO + 26)
     v.rect(0, 0, LARGO, Z_PATIN_SUP, 0.7, black, GRIS_CLARO)
@@ -416,15 +437,16 @@ def hoja_A2(c):
     v.linea(xa, zf0, xb, zf0, 1.0, black)
     # cerchas ocultas
     for pxx in POS_CERCHAS:
-        v.linea(pxx + 0.75, ze, pxx + 0.75, zr, 0.35, GRIS, [1.4, 1.8])
+        v.linea(pxx, ze, pxx, zr, 0.35, GRIS, [1.4, 1.8])
 
-    v.cota_h(0, LARGO, zr, pies(LARGO), off=44)
+    v.cota_h(0, LARGO, zr, pies(LARGO), off=40)
     v.cota_h(xa, xb, zr, f'{pies(LARGO + 2 * VUELO_HASTIAL)} CON VUELO EN HASTIAL',
-             off=60)
+             off=56)
     for a, b in zip(POS_CERCHAS[:-1], POS_CERCHAS[1:]):
         v.cota_h(a, b, zr, frac(b - a), off=28, size=5.2)
     v.cota_v(0, Z_ARRANQUE, xa - 6, pies(Z_ARRANQUE), off=-14)
-    v.cota_v(0, Z_CUMBRERA, xa - 6, pies(Z_CUMBRERA), off=-36)
+    v.cota_v(0, Z_CUMBRERA + CANTO_CUBIERTA, xa - 6,
+             f'{pies(Z_CUMBRERA + CANTO_CUBIERTA)} TERMINADO', off=-36)
     v.cota_v(0, Z_PLATAFORMA, LARGO + 10, pies(Z_PLATAFORMA), off=16)
     v.cota_v(0, Z_VIGA_INF, LARGO + 10, f'{pies(Z_VIGA_INF)} LIBRES', off=38)
 
@@ -464,19 +486,21 @@ def hoja_A2(c):
         '· Nivelar los patines con nivel de manguera',
         '  o láser: TODO lo demás depende de eso.',
         '· 4 anclajes helicoidales, uno por poste.',
+        f'· El ± 0\'-0" es la cara superior de la grava.',
         '',
         '**CERCHAS',
-        f'· {N_CERCHAS} cerchas a {frac(SEP_CERCHAS)} O.C.: las de los extremos',
-        '  a haces con la testa de la carrera.',
+        f'· {N_CERCHAS} cerchas a {frac(SEP_CERCHAS)} O.C.: las de hastial a',
+        '  haces con la testa de la carrera, y así un',
+        f'  eje cae en {frac(POS_CERCHAS[2])} justos, donde empalman',
+        '  los tableros de 4x8. La junta queda apoyada.',
+        '· Rigidizador longitudinal 2x4 clavado bajo',
+        '  los 5 tirantes de rodilla (pieza T6).',
         '· 2 herrajes antihuracán por cercha.',
-        f'· El vuelo de {frac(VUELO_HASTIAL)} en los hastiales se hace',
-        '  con escalera de vuelo: 4 cabios más por',
-        f'  hastial (idénticos) y travesaños de {frac(VUELO_HASTIAL)}.',
+        f'· Vuelo de {frac(VUELO_HASTIAL)} con escalera de vuelo.',
         '',
         '**TABLERO DE CUBIERTA',
-        '· Bandas horizontales. El tablero NO puede',
-        f'  doblarse en los quiebros: se corta en',
-        f'  fajas de {frac(CUERDA)} y de 13".',
+        f'· Fajas de {frac(CUERDA_BAJA)}, {frac(CUERDA_ALTA)} y 13": el tablero',
+        '  no dobla en los quiebros de 45°.',
     ], 6.2, 8.0)
     c.showPage()
 
@@ -626,7 +650,7 @@ def hoja_A3(c):
 def hoja_A4(c):
     h = Hoja(c, 'A-4', 'SECCIÓN TRANSVERSAL', '1/2" = 1\'-0"')
     x0, y0, x1, y1 = AREA
-    v = h.vista(escala(0.5), x0 + 322, y0 + 116)
+    v = h.vista(escala(0.5), x0 + 322, y0 + 66)
 
     terreno(v, -34, ANCHO + 34)
     for (a, b) in PATIN_Y:
@@ -645,7 +669,7 @@ def hoja_A4(c):
     cercha_alzado(v)
     v.poli([yz(u, val) for (u, val) in TEJADO], False, 1.4, black)
 
-    niveles = [(0, '± 0\'-0"', 'TERRENO ACABADO / GRAVA'),
+    niveles = [(0, '± 0\'-0"', 'RASANTE = CARA SUP. DE LA GRAVA'),
                (Z_PATIN_SUP, f'+ {pies(Z_PATIN_SUP)}', 'CARA SUP. DEL PATÍN 4x6'),
                (FONDO_CUBETA, f'+ {pies(FONDO_CUBETA)}', 'FONDO DE CUBETA'),
                (Z_PLATAFORMA, f'+ {pies(Z_PLATAFORMA)}', 'TABLERO DE LA PLATAFORMA'),
@@ -656,17 +680,20 @@ def hoja_A4(c):
                 'CANTO INF. DEL TIRANTE'),
                (Z_ARRANQUE + P_RODILLA_D[1], f'+ {pies(Z_ARRANQUE + P_RODILLA_D[1])}',
                 'RODILLA'),
-               (Z_CUMBRERA, f'+ {pies(Z_CUMBRERA)}', 'CUMBRERA')]
+               (Z_CUMBRERA, f'+ {pies(Z_CUMBRERA)}', 'CUMBRERA ESTRUCTURAL'),
+               (Z_CUMBRERA + CANTO_CUBIERTA,
+                f'+ {pies(Z_CUMBRERA + CANTO_CUBIERTA)}', 'ALTURA TERMINADA')]
     for z, t, _ in niveles:
-        if z in (Z_PATIN_SUP, FONDO_CUBETA, Z_VIGA_SUP):
+        if z in (Z_PATIN_SUP, FONDO_CUBETA, Z_VIGA_SUP, Z_CUMBRERA):
             continue
         v.nivel(ANCHO + 16, z, t, 26)
     v.cota_v(0, Z_ARRANQUE, -ALERO_VUELO - 10, pies(Z_ARRANQUE), off=-30)
     v.cota_v(Z_ARRANQUE, Z_CUMBRERA, -ALERO_VUELO - 10, pies(FLECHA), off=-30)
-    v.cota_v(0, Z_CUMBRERA, -ALERO_VUELO - 10, pies(Z_CUMBRERA), off=-54)
-    v.cota_h(0, ANCHO, 0, pies(ANCHO), off=-30)
+    v.cota_v(0, Z_CUMBRERA + CANTO_CUBIERTA, -ALERO_VUELO - 10,
+             f'{pies(Z_CUMBRERA + CANTO_CUBIERTA)} TERMINADO', off=-54)
+    v.cota_h(0, ANCHO, 0, pies(ANCHO), off=-20)
 
-    h.titulo_vista(x0 + 200, y0 + 42, 5, 'SECCIÓN TRANSVERSAL', '1/2" = 1\'-0"')
+    h.titulo_vista(x0 + 214, y0 + 22, 5, 'SECCIÓN TRANSVERSAL', '1/2" = 1\'-0"')
 
     px = x0
     h.caja(px, y0 + 62, 214, 316, relleno=None)
@@ -684,14 +711,21 @@ def hoja_A4(c):
         '  inferior de la cercha, que es donde arrancan los cabios.',
         f'· El cordón (2x4 de canto, {frac(ANCHO_CABIO)}) va encima de la carrera:',
         f'  la cara superior de la carrera queda a {pies(Z_VIGA_SUP)}.',
-        f'· Con la flecha de {pies(FLECHA)}, la cumbrera cae en {pies(Z_CUMBRERA)}',
-        '  EXACTOS. Las dos cotas redondas se cumplen a la vez.',
+        f'· La flecha NO se elige: sale de los {pies(ALTURA_TERMINADA)} terminados',
+        f'  menos los {pies(ARRANQUE_TECHO)} de arranque y el canto de la cubierta',
+        f'  en la cumbrera ({frac(CANTO_CUBIERTA, 32)}): flecha = {frac(FLECHA)}.',
         f'· La plataforma sube de 18" a {frac(Z_PLATAFORMA)}: apoyada sobre el',
         '  terreno, una cubeta colgada tocaría el patín. Con',
         f'  {frac(Z_PLATAFORMA)} quedan {frac(FONDO_CUBETA - Z_PATIN_SUP)} de holgura.',
         f'· Paso libre bajo la carrera {pies(Z_VIGA_INF)} y bajo la punta',
         f'  del alero {pies(Z_ALERO_MIN)}: un adulto pasa de pie por los',
         '  cuatro lados.',
+        '',
+        '**EL ± 0\'-0" ES LA CARA SUPERIOR DE LA GRAVA,',
+        'no la tierra natural. Nivela los dos patines',
+        'entre sí y compruébalo en las cuatro esquinas:',
+        'medio centímetro de asiento se come el margen',
+        'de la cota de 11\'-0".',
     ], 6.1, 8.0)
     c.showPage()
 
@@ -742,17 +776,16 @@ def tabla(h, x, y, anchos, cabecera, filas, size=6.1, lead=9.2, cab_size=6.0,
 def hoja_A5(c):
     h = Hoja(c, 'A-5', 'PLANTILLA DE LA CERCHA', '3/4" = 1\'-0"  (cuadros NTS)')
     x0, y0, x1, y1 = AREA
-    v = h.vista(escala(0.75), 334, 392)
+    OX, OY = 284, 300 + ALERO_VUELO * math.tan(ANG_ALTO) * 4.5 + 3.5 / math.cos(ANG_ALTO) * 4.5
+    v = h.vista(escala(0.75), OX, OY)
 
-    # --- construcción geométrica -------------------------------------------
-    v.arco(0, 0, R, 0, 180, 0.6, AZUL, [2.6, 2.2])
-    v.arco(0, 0, R_INTERIOR, 0, 180, 0.45, AZUL, [1.4, 1.6])
-    for a in (0, 45, 90, 135, 180):
-        v.linea(0, 0, R * math.cos(math.radians(a)), R * math.sin(math.radians(a)),
-                0.35, AZUL, [3, 1.5, 1, 1.5])
-    for a0, a1 in ((0, 45), (45, 90), (90, 135), (135, 180)):
-        rr = 9.0 if a0 in (0, 135) else 12.5
-        v.angulo((0, 0), a0, a1, rr, '45°', 5.6, AZUL, rtxt=rr + 3.6)
+    # --- replanteo por coordenadas -----------------------------------------
+    kx, ky = P_RODILLA_D
+    for sg in (1, -1):
+        v.linea(sg * MEDIA_LUZ, 0, sg * kx, 0, 0.4, AZUL, [3, 1.5, 1, 1.5])
+        v.linea(sg * kx, 0, sg * kx, ky, 0.4, AZUL, [3, 1.5, 1, 1.5])
+        v.linea(sg * kx, ky, 0, ky, 0.4, AZUL, [3, 1.5, 1, 1.5])
+    v.linea(0, ky, 0, FLECHA, 0.4, AZUL, [3, 1.5, 1, 1.5])
 
     # --- piezas -------------------------------------------------------------
     for k in ('cordon', 'cabio_bajo_i', 'cabio_alto_i', 'cabio_bajo_d',
@@ -770,66 +803,63 @@ def hoja_A5(c):
     v.angulo(P_ALERO_I, 0, 67.5, 10, '67.5°', 8.4, ROJO, rtxt=14)
     v.angulo(P_RODILLA_D, 157.5, 292.5, 7, '135°', 7.6, ROJO, rtxt=10.5)
     v.angulo(P_RODILLA_I, 247.5, 382.5, 7, '135°', 7.6, ROJO, rtxt=10.5)
-    v.angulo(P_CUMBRERA, 202.5, 337.5, 5.2, '135°', 7.6, ROJO, rtxt=8.0)
-    v.angulo(P_CUMBRERA, 180, 202.5, 14, '22.5°', 7.0, ROJO, rtxt=17.5)
-    v.angulo(P_CUMBRERA, -22.5, 0, 14, '22.5°', 7.0, ROJO, rtxt=17.5)
-    v.angulo(P_ALERO_D, -22.5, 0, 9, '22.5°', 7.0, ROJO, rtxt=12.0)
-    v.linea(-19, FLECHA, 19, FLECHA, 0.35, GRIS, [3, 2])
-    v.linea(R, 0, R + 13, 0, 0.35, GRIS, [3, 2])
+    v.angulo(P_CUMBRERA, 202.5, 337.5, 4.8, '135°', 7.6, ROJO, rtxt=7.0)
+    v.angulo(P_CUMBRERA, 180, 202.5, 13, '22.5°', 7.0, ROJO, rtxt=16.5)
+    v.angulo(P_CUMBRERA, -22.5, 0, 13, '22.5°', 7.0, ROJO, rtxt=16.5)
+    v.angulo(P_ALERO_D, -22.5, 0, 9, '22.5°', 7.0, ROJO, rtxt=12)
+    v.linea(-17, FLECHA, 17, FLECHA, 0.35, GRIS, [3, 2])
+    v.linea(MEDIA_LUZ, 0, MEDIA_LUZ + 13, 0, 0.35, GRIS, [3, 2])
 
     # --- cotas --------------------------------------------------------------
-    v.cota_h(P_ALERO_D[0], P_RODILLA_D[0], FLECHA, frac(CARRERA_BAJA), off=14)
-    v.cota_h(P_RODILLA_D[0], 0, FLECHA, frac(CARRERA_ALTA), off=14)
-    v.cota_h(P_ALERO_I[0], P_RODILLA_I[0], FLECHA, frac(CARRERA_BAJA), off=14)
-    v.cota_h(P_RODILLA_I[0], 0, FLECHA, frac(CARRERA_ALTA), off=14)
-    v.cota_h(-R, R, FLECHA, f'{pies(ANCHO)}   CORDÓN INFERIOR A ESCUADRA', off=30)
-    v.cota_v(0, P_RODILLA_D[1], -46, frac(CARRERA_ALTA), off=-14)
-    v.cota_v(P_RODILLA_D[1], FLECHA, -46, frac(CARRERA_BAJA), off=-14)
-    v.cota_v(0, FLECHA, -46, f'{pies(FLECHA)}  FLECHA', off=-32)
-    v.cota_al(P_ALERO_D, P_RODILLA_D, frac(CUERDA), off=13, size=7.2, lado=-1)
-    v.cota_al(P_RODILLA_D, P_CUMBRERA, frac(CUERDA), off=13, size=7.2, lado=-1)
-    v.cota_al(ESQ_ASIENTO, ESQ_RODILLA, frac(CABIO_PUNTA_CORTA), off=-9,
+    v.cota_h(MEDIA_LUZ, kx, FLECHA, frac(CARRERA_BAJA, 32), off=14, size=5.8)
+    v.cota_h(kx, 0, FLECHA, frac(CARRERA_ALTA, 32), off=14, size=5.8)
+    v.cota_h(-MEDIA_LUZ, -kx, FLECHA, frac(CARRERA_BAJA, 32), off=14, size=5.8)
+    v.cota_h(-kx, 0, FLECHA, frac(CARRERA_ALTA, 32), off=14, size=5.8)
+    v.cota_h(-MEDIA_LUZ, MEDIA_LUZ, FLECHA,
+             f'{pies(ANCHO)}   CORDÓN INFERIOR A ESCUADRA', off=30)
+    v.cota_v(0, ky, -46, frac(FLECHA_BAJA, 32), off=-14)
+    v.cota_v(ky, FLECHA, -46, frac(FLECHA_ALTA, 32), off=-14)
+    v.cota_v(0, FLECHA, -46, f'{frac(FLECHA)}  FLECHA', off=-32)
+    v.cota_al(P_ALERO_D, P_RODILLA_D, frac(CUERDA_BAJA), off=13, size=7.4, lado=-1)
+    v.cota_al(P_RODILLA_D, P_CUMBRERA, frac(CUERDA_ALTA), off=13, size=7.4, lado=-1)
+    v.cota_al(ESQ_ASIENTO, ESQ_RODILLA, frac(CABIO_BAJO_CORTA), off=-9,
               size=5.6, lado=-1)
     v.cota_h(-TIRANTE_CORTA / 2, TIRANTE_CORTA / 2, TIRANTE_V_SUP,
-             frac(TIRANTE_CORTA) + '  canto sup.', off=9, size=5.8)
+             frac(TIRANTE_CORTA) + '  canto sup.', off=7, size=5.6)
     v.cota_h(-TIRANTE_LARGA / 2, TIRANTE_LARGA / 2, TIRANTE_V_INF,
              frac(TIRANTE_LARGA) + '  canto inf.', off=-11, size=5.8)
-    v.cota_h(P_ALERO_D[0], ALERO_PUNTA[0], ALERO_PUNTA[1] - 4.2, frac(ALERO_VUELO),
+    v.cota_h(MEDIA_LUZ, ALERO_PUNTA[0], ALERO_PUNTA[1] - 4.2, frac(ALERO_VUELO),
              off=-11, size=5.6)
     v.cota_v(ALERO_PUNTA[1], 0, ALERO_PUNTA[0] + 2.5, frac(ALERO_CAIDA, 32),
              off=12, size=5.6)
 
     # --- notas, todas hacia la derecha --------------------------------------
-    notas = [
-        ((R * math.cos(math.radians(26)), R * math.sin(math.radians(26))), 41,
-         f'ARCO EXTERIOR  R = {frac(R)}', AZUL, 'Helvetica-Bold'),
-        ((R_INTERIOR * math.cos(math.radians(16)),
-          R_INTERIOR * math.sin(math.radians(16))), 35,
-         f'ARCO INTERIOR  r = {frac(R_INTERIOR, 32)}', AZUL, 'Helvetica-Bold'),
-        (P_RODILLA_D, 29, 'PUNTO DE TRABAJO (canto superior)', ROJO, 'Helvetica'),
-        (ESQ_RODILLA, 23, 'ESQUINA INTERIOR DEL INGLETE', AZUL, 'Helvetica'),
-        ((0, TIRANTE_V_SUP), 17, 'TIRANTE: topa en la cara interior de los '
-         'cabios BAJOS', black, 'Helvetica'),
-        (((ESQ_ASIENTO[0] + P_ALERO_D[0]) / 2, 0), 11,
+    for pt, vv, txt, col, fnt in [
+        (P_CUMBRERA, 47, f'CUMBRERA (0 , {frac(FLECHA)})', ROJO, 'Helvetica-Bold'),
+        (P_RODILLA_D, 40, f'RODILLA ({frac(kx)} , {frac(ky)})', ROJO,
+         'Helvetica-Bold'),
+        (ESQ_RODILLA, 33, 'esquina interior del inglete', AZUL, 'Helvetica'),
+        ((0, TIRANTE_V_SUP), 26,
+         'TIRANTE: topa en la cara interior de los cabios BAJOS', black,
+         'Helvetica'),
+        (((ESQ_ASIENTO[0] + MEDIA_LUZ) / 2, 0), 19,
          f'ASIENTO: cara de {frac(CARA_TOPE)} sobre el cordón', black, 'Helvetica'),
+        (P_ALERO_D, 12, f'ALERO ({frac(MEDIA_LUZ)} , 0)', ROJO, 'Helvetica-Bold'),
         (((ALERO_TALON[0] + ALERO_PUNTA[0]) / 2, -1.5), 5,
-         'COLA DE ALERO: es la cartela del talón', black, 'Helvetica'),
-    ]
-    for pt, vv, txt, col, fnt in notas:
-        v.nota(pt, (51, vv), txt, 5.9, col, font=fnt)
+         'COLA DE ALERO, clavada sobre la cartela del talón', black, 'Helvetica'),
+    ]:
+        v.nota(pt, (53, vv), txt, 5.9, col, font=fnt)
 
-    h.titulo_vista(60, 336, 6, 'PLANTILLA DE LA CERCHA — TODOS LOS ÁNGULOS',
-                   '3/4" = 1\'-0"')
+    h.titulo_vista(186, 296, 6, 'PLANTILLA DE LA CERCHA', '3/4" = 1\'-0"')
 
     # =====================  banda inferior  ==================================
-    # --- un solo reglaje -----------------------------------------------------
-    h.caja(x0, 156, 176, 166, relleno=CREMA, borde=ROJO, lw=1.2)
-    h.texto(x0 + 9, 306, 'UN SOLO REGLAJE', 11.5, 'Helvetica-Bold', ROJO)
-    h.texto(x0 + 9, 293, 'DE SIERRA', 11.5, 'Helvetica-Bold', ROJO)
-    h.texto(x0 + 9, 277, 'INGLETE  22.5°', 13, 'Helvetica-Bold')
-    h.texto(x0 + 9, 263, 'BISEL  0°', 13, 'Helvetica-Bold')
-    h.texto(x0 + 9, 252, 'tabla plana sobre la mesa', 6.2, 'Helvetica', GRIS)
-    h.parrafo(x0 + 9, 240, [
+    h.caja(x0, 30, 176, 250, relleno=CREMA, borde=ROJO, lw=1.2)
+    h.texto(x0 + 9, 264, 'UN SOLO REGLAJE', 11.5, 'Helvetica-Bold', ROJO)
+    h.texto(x0 + 9, 251, 'DE SIERRA', 11.5, 'Helvetica-Bold', ROJO)
+    h.texto(x0 + 9, 234, 'INGLETE  22.5°', 13, 'Helvetica-Bold')
+    h.texto(x0 + 9, 220, 'BISEL  0°', 13, 'Helvetica-Bold')
+    h.texto(x0 + 9, 209, 'tabla plana sobre la mesa', 6.2, 'Helvetica', GRIS)
+    h.parrafo(x0 + 9, 197, [
         'Vale para los tres cortes de la cercha',
         'y también para la cola del alero:',
         '· asiento del cabio bajo',
@@ -837,55 +867,37 @@ def hoja_A5(c):
         '· cumbrera (las 2 piezas)',
         '· los 2 extremos del tirante',
         '· los 2 extremos de la cola de alero',
-        f'Único corte a ESCUADRA: el cordón',
-        f'inferior de {frac(CORDON)}.',
+        f'Único corte a ESCUADRA: el cordón de {frac(CORDON)}.',
     ], 6.1, 8.1)
-    h.parrafo(x0 + 9, 168, [
-        f'tan 67.5° = 1+raíz2 = {math.tan(ANG_BAJO):.6f}',
-        f'tan 22.5° = raíz2-1 = {math.tan(ANG_ALTO):.6f}',
-    ], 5.9, 8.0)
-
-    # --- por qué 22.5 --------------------------------------------------------
-    h.caja(x0, 34, 176, 112, relleno=None)
-    h.texto(x0 + 9, 132, 'POR QUÉ SALE 22.5° Y NO OTRO', 7.6, 'Helvetica-Bold')
-    h.parrafo(x0 + 9, 120, [
-        'Pedir el MISMO inglete en los tres',
-        'cortes, con tB = cabio bajo y',
-        'tA = cabio alto, da dos ecuaciones:',
+    c.setStrokeColor(ROJO)
+    c.setLineWidth(0.5)
+    c.line(x0 + 9, 134, x0 + 167, 134)
+    h.texto(x0 + 9, 124, 'OJO, ESTO CAMBIA A 11 PIES', 7.4, 'Helvetica-Bold', ROJO)
+    h.parrafo(x0 + 9, 114, [
+        'Los cabios YA NO son todos iguales:',
+        f'bajo {frac(CUERDA_BAJA)} y alto {frac(CUERDA_ALTA)}. Dos piezas,',
+        'pero UN SOLO reglaje de sierra.',
         '',
-        '   asiento    90 - tB  =  tA',
-        '   rodilla   (tB - tA)/2 = tA',
-        '',
-        'De ahí tB + tA = 90 y tB = 3 tA,',
-        'cuya única solución es 22.5° y 67.5°.',
-        'No es una elección estética: es el',
-        'único par que existe.',
-    ], 6.1, 8.0)
-
-    # --- retranqueo -----------------------------------------------------------
-    h.caja(x0 + 188, 34, 192, 92, relleno=None)
-    h.texto(x0 + 197, 116, 'RETRANQUEO DEL INGLETE', 7.6, 'Helvetica-Bold')
-    dv = h.vista(escala(1.5), x0 + 219, 66)
-    dv.poli([(0, 0), (16, 0), (16 - ANCHO_CABIO * math.tan(ANG_ALTO), ANCHO_CABIO),
-             (0, ANCHO_CABIO)], True, 1.0, black, white)
-    dv.cota_h(0, 16, ANCHO_CABIO, 'PUNTA LARGA', off=11, size=5.0)
-    dv.cota_h(0, 16 - ANCHO_CABIO * math.tan(ANG_ALTO), 0, 'PUNTA CORTA',
-              off=-10, size=5.0)
-    dv.cota_v(0, ANCHO_CABIO, 0, frac(ANCHO_CABIO), off=-11, size=5.0)
-    dv.angulo((16, 0), 112.5, 180, 2.6, '22.5°', 6.0, ROJO, rtxt=4.6)
-    h.parrafo(x0 + 197, 46, [
-        f'Retranqueo = {frac(ANCHO_CABIO)} x tan 22.5° = {frac(RETRANQUEO)} '
-        f'({RETRANQUEO:.4f}") por corte.',
-        f'Cara de corte = {frac(ANCHO_CABIO)} / cos 22.5° = {frac(CARA_TOPE)}.',
-    ], 6.0, 8.0)
+        'El 22.5° sale de igualar el inglete del',
+        'asiento (90-tB), el de la rodilla',
+        '((tB-tA)/2) y el de la cumbrera (tA):',
+        'tB+tA=90 y tB=3tA. Eso NO depende de la',
+        'flecha, y por eso sobrevive al cambio.',
+        'Lo que sí dependía de la flecha era que',
+        'los cabios salieran iguales: sólo pasa',
+        'con flecha = luz/2, y ya no es el caso.',
+    ], 6.0, 7.4)
 
     # --- cuadro de cortes -----------------------------------------------------
     tx = x0 + 188
-    h.texto(tx, 308, 'CUADRO DE CORTES DE LA CERCHA', 9.4, 'Helvetica-Bold')
+    h.texto(tx, 280, 'CUADRO DE CORTES DE LA CERCHA', 9.4, 'Helvetica-Bold')
     filas = [
-        ('T1', 'Cabio', str(D.N_CABIOS), '22.5°', '0°', frac(CABIO_PUNTA_LARGA),
-         frac(CABIO_PUNTA_CORTA), frac(CARA_TOPE),
-         'los 4 faldones son la MISMA pieza; punta larga = canto SUP.'),
+        ('T1', 'Cabio BAJO (67.5°)', str(D.N_CABIOS_BAJOS), '22.5°', '0°',
+         frac(CUERDA_BAJA), frac(CABIO_BAJO_CORTA), frac(CARA_TOPE),
+         f'{CUERDA_BAJA:.4f}" · punta larga = canto SUPERIOR'),
+        ('T1b', 'Cabio ALTO (22.5°)', str(D.N_CABIOS_ALTOS), '22.5°', '0°',
+         frac(CUERDA_ALTA), frac(CABIO_ALTO_CORTA), frac(CARA_TOPE),
+         f'{CUERDA_ALTA:.4f}" · punta larga = canto SUPERIOR'),
         ('T2', 'Tirante de rodilla', str(N_CERCHAS), '22.5°', '0°',
          frac(TIRANTE_LARGA), frac(TIRANTE_CORTA), frac(CARA_TOPE),
          'OJO: aquí la punta larga es el canto INFERIOR'),
@@ -897,44 +909,69 @@ def hoja_A5(c):
         ('T5', 'Travesaño de vuelo', '16', '0°', '0°', frac(VUELO_HASTIAL),
          frac(VUELO_HASTIAL), frac(S2x4[0]), 'escalera de vuelo del hastial'),
     ]
-    tabla(h, tx, 302, [26, 84, 24, 36, 26, 56, 56, 46, 194],
+    tabla(h, tx, 274, [26, 96, 24, 36, 26, 54, 54, 46, 186],
           ['MARCA', 'PIEZA', '>CANT', '>INGLETE', '>BISEL', '>PUNTA LARGA',
            '>PUNTA CORTA', '>CARA CORTE', 'OBSERVACIONES'], filas,
-          size=6.1, lead=10.0, cab_size=5.6, resaltar=(0,))
+          size=6.1, lead=10.0, cab_size=5.6, resaltar=(0, 1))
 
     # --- cómo trazar ----------------------------------------------------------
-    h.texto(tx, 222, 'CÓMO TRAZAR LA PLANTILLA (una sola vez, para las 5 cerchas)',
+    h.texto(tx, 190, 'CÓMO TRAZAR LA PLANTILLA (una sola vez, para las 5 cerchas)',
             9.0, 'Helvetica-Bold')
     pasos = [
         f'1.  Sobre una hoja de 4x8 o sobre el suelo, traza una recta y marca en ella '
         f'los {frac(ANCHO)} del cordón inferior. Marca el centro.',
-        f'2.  Con una cuerda o un compás de vara, desde el centro traza el arco de '
-        f'{frac(R)}: corta la recta en los dos ALEROS y da la CUMBRERA.',
-        f'3.  Traza las dos radiales a 45°. Donde cortan el arco están las dos RODILLAS. '
-        f'Ya tienes los cinco puntos de trabajo.',
-        f'4.  Traza el segundo arco de {frac(R_INTERIOR, 32)}. Donde corta la recta y las '
-        f'dos radiales están las tres ESQUINAS INTERIORES de los ingletes.',
-        f'5.  Clava topes de 2x4 por fuera del contorno. Monta la PRIMERA cercha sobre la '
-        f'plantilla y compruébala antes de cortar las otras cuatro.',
-        f'6.  Corta cada cabio desde su propio trazo, NUNCA encadenando medidas: '
-        f'{frac(CUERDA)} son {CUERDA:.4f}" y cuatro redondeos seguidos se notan en la cumbrera.',
+        f'2.  Desde cada extremo, {frac(CARRERA_BAJA, 32)} hacia DENTRO y '
+        f'{frac(FLECHA_BAJA, 32)} hacia ARRIBA: ahí está la RODILLA.',
+        f'3.  Desde la rodilla, {frac(CARRERA_ALTA, 32)} hacia DENTRO y '
+        f'{frac(FLECHA_ALTA, 32)} hacia ARRIBA: la CUMBRERA, a {frac(FLECHA)} sobre la recta.',
+        f'4.  COMPRUEBA EN DIAGONAL antes de cortar nada: alero-rodilla tiene que dar '
+        f'{frac(CUERDA_BAJA)} y rodilla-cumbrera {frac(CUERDA_ALTA)}. Si no cuadra, repite.',
+        f'5.  Esquinas interiores: {frac(ESQ_ASIENTO[0], 32)} desde el centro sobre la '
+        f'recta; {frac(CARA_TOPE)} por debajo de la cumbrera; y la de la rodilla, '
+        f'{frac(P_RODILLA_D[1]-ESQ_RODILLA[1], 32)} por debajo de su punto de trabajo.',
+        f'6.  Clava topes de 2x4 por fuera del contorno. Monta la PRIMERA cercha sobre '
+        f'la plantilla y compruébala antes de cortar las otras cuatro.',
         f'7.  Los dos ingletes de un cabio son de MANO CONTRARIA: convergen hacia el canto '
         f'inferior. Da la vuelta a la tabla manteniendo el mismo canto contra la guía.',
-        f'8.  Cartelas de 1/2" contrachapado en las DOS caras de la rodilla (14" x 14") y de '
-        f'la cumbrera (24" x 9"), con tornillos de 1 5/8" a 3".',
-        f'9.  En el talón NO va cartela de contrachapado: las dos colas de alero, una por '
-        f'cara, solapan {frac(ALERO_SOLAPE)} sobre cabio y cordón y hacen de cartela.',
+        f'8.  Cartelas de 1/2" contrachapado en las DOS caras de la rodilla (14" x 14") y '
+        f'de la cumbrera (18" x 9"), con tornillos de 1 5/8" a 3".',
+        f'9.  En el talón SÍ va cartela (14" x 10", las dos caras): la cola de alero cruza '
+        f'el cabio a 90° y sola no cose el nudo. La cola se clava ENCIMA de la cartela.',
     ]
-    yy = 210
+    yy = 178
     for p in pasos:
         h.texto(tx, yy, p, 6.3, 'Helvetica')
         yy -= 9.4
+    h.texto(tx, yy - 1, f'Retranqueo por corte = {frac(ANCHO_CABIO)} x tan 22.5° = '
+            f'{frac(RETRANQUEO)} ({RETRANQUEO:.4f}").   Cara de corte = '
+            f'{frac(ANCHO_CABIO)} / cos 22.5° = {frac(CARA_TOPE)}.   Cada cabio es un '
+            f'TRAPECIO: hay que voltear la tabla entre los dos cortes.',
+            6.3, 'Helvetica-Bold')
+
+    # --- retranqueo -----------------------------------------------------------
+    h.caja(tx, 24, 294, 60, relleno=CREMA, borde=ROJO, lw=1.1)
+    h.texto(tx + 8, 74, 'SI CAMBIAS LA TEJA, CAMBIA LA FLECHA', 7.2,
+            'Helvetica-Bold', ROJO)
+    cols = [116, 34, 40]
+    for tt, xx in zip(['PAQUETE DE CUBIERTA', 'CANTO', 'FLECHA',
+                       'CABIO BAJO / ALTO'],
+                      [0, cols[0], sum(cols[:2]), sum(cols[:3])]):
+        h.texto(tx + 8 + xx, 64.5, tt, 5.2, 'Helvetica-Bold', GRIS)
+    for k, (nom, canto, fl, lb, la) in enumerate(tabla_paquetes()):
+        yy2 = 55.5 - k * 7.2
+        neg = 'ESTE PLANO' in nom
+        f = 'Helvetica-Bold' if neg else 'Helvetica'
+        col = ROJO if neg else black
+        h.texto(tx + 8, yy2, nom.replace('  (ESTE PLANO)', '')[:40], 5.2, f, col)
+        h.texto(tx + 8 + cols[0], yy2, frac(canto, 32), 5.2, f, col)
+        h.texto(tx + 8 + sum(cols[:2]), yy2, frac(fl), 5.2, f, col)
+        h.texto(tx + 8 + sum(cols[:3]), yy2, f'{frac(lb)} / {frac(la)}', 5.2, f, col)
+    h.texto(tx + 8, 28, f'Cada 1/16" mueve el cabio bajo {SENSIBILIDAD_BAJA:.3f}" '
+            f'y el alto {SENSIBILIDAD_ALTA:.3f}". MIDE UN APILADO REAL CON CALIBRE '
+            f'ANTES DE CORTAR.', 5.2, 'Helvetica-Bold')
     c.showPage()
 
 
-# ===========================================================================
-#  A-6  DETALLES
-# ===========================================================================
 CELDAS = [(28, 322, 236, 246), (274, 322, 236, 246), (520, 322, 244, 246),
           (28, 92, 236, 220), (274, 92, 236, 220), (520, 92, 244, 220)]
 
@@ -975,8 +1012,9 @@ def hoja_A6(c):
     h.parrafo(x + 7, yn, [
         f'· Vuela {frac(ALERO_VUELO)} y baja {frac(ALERO_CAIDA, 32)}: 22.5° justos, el mismo reglaje.',
         f'· Largo {frac(ALERO_LARGO)} en los dos cantos (cortes paralelos).',
-        f'· Solapa {frac(ALERO_SOLAPE)} sobre cabio y cordón: LAS DOS COLAS SON',
-        '  LA CARTELA DEL TALÓN. Ahí no va contrachapado.',
+        f'· Solapa {frac(ALERO_SOLAPE)} sobre el cordón, pero cruza el cabio a 90°:',
+        '  NO basta como cartela. El talón lleva su cartela de',
+        '  1/2" de 14"x10" en las dos caras, y la cola va ENCIMA.',
         '· 6 tornillos de 3" por cola, en dos hileras.',
         f'· El cabio sólo apoya {frac(CARA_TOPE)} sobre el cordón, y justo en',
         '  su testa: todo el empuje lo cosen las colas.',
@@ -986,11 +1024,11 @@ def hoja_A6(c):
     x, y, w, hh, yn, rc = _celda(h, 1, 8, 'UNIÓN DE RODILLA', '1" = 1\'-0"', 62)
     h.recorte(*rc)
     v = h.vista(escala(1.0), rc[0] + rc[2] / 2 - P_RODILLA_D[0] * 6,
-                rc[1] + rc[3] / 2 - 25.5 * 6)
+                rc[1] + rc[3] / 2 - (P_RODILLA_D[1] - 1) * 6)
     for k in ('cabio_bajo_d', 'cabio_alto_d', 'tirante'):
         v.poli(PIEZAS[k], True, 0.9, black, white)
     gx, gy = P_RODILLA_D
-    v.rect(gx - 10, gy - 11, 15, 15, 0.7, VERDE, None, [2.4, 2])
+    v.rect(gx - 12, gy - 13, 16, 16, 0.7, VERDE, None, [2.4, 2])
     v.circ(gx, gy, 0.8, 0.6, ROJO, ROJO)
     v.angulo((gx, gy), 157.5, 292.5, 6.0, '135°', 6.8, ROJO, rtxt=9.0)
     v.circ(*ESQ_RODILLA, 0.7, 0.6, AZUL, white)
@@ -998,7 +1036,7 @@ def hoja_A6(c):
     v.texto(gx + 8, gy + 1.6, 'LAS DOS CARAS', 5.0, 'Helvetica', VERDE)
     v.texto(ESQ_RODILLA[0] - 2.5, ESQ_RODILLA[1] - 4.5, 'ESQUINA INTERIOR', 5.0,
             'Helvetica', AZUL, al='r')
-    v.texto(gx - 13, gy - 4.4, 'TIRANTE', 5.0, 'Helvetica', GRIS, al='r')
+    v.texto(gx - 14, gy - 3.2, 'TIRANTE', 5.0, 'Helvetica', GRIS, al='r')
     v.texto(gx - 3, gy + 9, 'CABIO ALTO', 5.0, 'Helvetica', GRIS, al='r')
     v.texto(gx + 1.5, gy - 16, 'CABIO BAJO', 5.0, 'Helvetica', GRIS)
     h.fin_recorte()
@@ -1013,18 +1051,19 @@ def hoja_A6(c):
     ], 5.6, 7.2)
 
     # ---- 9. CUMBRERA -------------------------------------------------------
-    x, y, w, hh, yn, rc = _celda(h, 2, 9, 'CUMBRERA', '1" = 1\'-0"', 56)
+    x, y, w, hh, yn, rc = _celda(h, 2, 9, 'CUMBRERA', '3/4" = 1\'-0"', 56)
     h.recorte(*rc)
-    v = h.vista(escala(1.0), rc[0] + rc[2] / 2, rc[1] + rc[3] / 2 - 32 * 6)
+    v = h.vista(escala(0.75), rc[0] + rc[2] / 2,
+                rc[1] + rc[3] / 2 + 22 - FLECHA * 4.5)
     for k in ('cabio_alto_d', 'cabio_alto_i'):
         v.poli(PIEZAS[k], True, 0.9, black, white)
-    v.rect(-12, FLECHA - 10.5, 24, 9, 0.7, VERDE, None, [2.4, 2])
+    v.rect(-9, FLECHA - 10.5, 18, 9, 0.7, VERDE, None, [2.4, 2])
     v.circ(0, FLECHA, 0.8, 0.6, ROJO, ROJO)
-    v.angulo(P_CUMBRERA, 202.5, 337.5, 5.5, '135°', 6.8, ROJO, rtxt=8.5)
-    v.angulo(P_CUMBRERA, -22.5, 0, 8, '22.5°', 6.4, ROJO, rtxt=10.5)
-    v.linea(-17, FLECHA, 17, FLECHA, 0.35, GRIS, [2.5, 2])
-    v.cota_v(R_INTERIOR, FLECHA, 1.5, frac(CARA_TOPE), off=12, size=5.0)
-    v.texto(0, FLECHA - 13.5, 'CARTELA 1/2"  24"x9"  ·  LAS DOS CARAS', 5.0,
+    v.angulo(P_CUMBRERA, 202.5, 337.5, 7.0, '135°', 6.8, ROJO, rtxt=10.5)
+    v.angulo(P_CUMBRERA, -22.5, 0, 10, '22.5°', 6.4, ROJO, rtxt=13)
+    v.linea(-22, FLECHA, 22, FLECHA, 0.35, GRIS, [2.5, 2])
+    v.cota_v(FLECHA - CARA_TOPE, FLECHA, 1.5, frac(CARA_TOPE), off=12, size=5.0)
+    v.texto(0, FLECHA - 13.5, 'CARTELA 1/2"  18"x9"  ·  LAS DOS CARAS', 5.0,
             'Helvetica-Bold', VERDE, al='c')
     h.fin_recorte()
     h.parrafo(x + 7, yn, [
@@ -1032,7 +1071,7 @@ def hoja_A6(c):
         f'· Cara de tope {frac(CARA_TOPE)} contra el cabio opuesto.',
         '· Sin jabalcón ni tabla de cumbrera: la cartela en las dos',
         '  caras hace todo el trabajo.',
-        f'· El intradós de la cumbrera queda a {pies(Z_ARRANQUE + R_INTERIOR)}.',
+        f'· El intradós de la cumbrera queda a {pies(Z_CUMBRERA - CARA_TOPE)}.',
         '· Entre cerchas, taco de 2x4 en la cumbrera.',
     ], 5.6, 7.2)
 
@@ -1134,7 +1173,7 @@ def hoja_A7(c):
     h.texto(x0, y1 - 24, 'Todas las longitudes salen de la geometría de la hoja '
             'A-5. Verifica siempre contra la plantilla antes de cortar en serie.',
             6.8, 'Helvetica', GRIS)
-    anchos = [30, 30, 96, 66, 108, 406]
+    anchos = [30, 30, 92, 62, 118, 396]
     cab = ['MARCA', '>CANT', 'MATERIAL', '>LARGO', 'ÁNGULOS', 'DESTINO']
     yy = y1 - 36
     for sec, piezas in D.SECCIONES:
@@ -1145,13 +1184,13 @@ def hoja_A7(c):
             dest = p['donde'] + (f"  [{p['nota']}]" if p['nota'] else '')
             filas.append((p['marca'], p['qty'], p['mat'], largo,
                           p['ang'][:30], dest[:104]))
-        yy = tabla(h, x0, yy - 5, anchos, cab, filas, size=6.0, lead=8.8,
-                   cab_size=5.6) - 11
-    h.caja(x0, y0 + 22, 492, 46, relleno=None)
-    h.parrafo(x0 + 8, y0 + 56, [
+        yy = tabla(h, x0, yy - 5, anchos, cab, filas, size=6.0, lead=7.8,
+                   cab_size=5.6) - 8
+    h.caja(x0, 28, 480, 46, relleno=None)
+    h.parrafo(x0 + 8, 62, [
         '**ANTES DE CORTAR',
         '· Toda la madera en contacto con el terreno o con agua jabonosa va TRATADA (PT).',
-        f'· Los {D.N_CABIOS} cabios T1 son la misma pieza: corta uno, compruébalo en la plantilla y úsalo de patrón.',
+        f'· {D.N_CABIOS_BAJOS} cabios bajos T1 iguales y {D.N_CABIOS_ALTOS} altos T1b iguales: corta uno de cada, compruébalo en la plantilla y úsalo de patrón.',
         '· Ingletadora en 22.5°, bisel 0°, tabla plana. El único corte a escuadra de la cercha es el cordón T3.',
     ], 6.2, 8.2)
     c.showPage()
@@ -1186,7 +1225,7 @@ def hoja_A8(c):
                filas, size=6.4, lead=9.6) - 16
 
     h.texto(x0, yy, 'HERRAJES, CUBIERTA Y VARIOS', 8.0, 'Helvetica-Bold', ROJO)
-    filas = [(q, d[:54], n[:56]) for q, d, n in D.HERRAJES]
+    filas = [(q, d[:58], n[:56]) for q, d, n in D.HERRAJES]
     yy = tabla(h, x0, yy - 5, [30, 190, 202], ['>CANT', 'CONCEPTO', 'OBSERVACIONES'],
                filas, size=6.2, lead=8.6)
 
@@ -1209,6 +1248,8 @@ def hoja_A8(c):
         f'Iza las cerchas a {frac(SEP_CERCHAS)} O.C., 2 herrajes antihuracán cada una, '
         f'y arriostra provisionalmente.',
         f'Escaleras de vuelo de {frac(VUELO_HASTIAL)} en los dos hastiales.',
+        'Cuñas de transición (T7 y T8) en los dos quiebros de 45°, o achaflana el canto '
+        'del tablero: la teja asfáltica no dobla una arista viva de 45°.',
         'Tablero de cubierta en fajas, empezando por el alero. Fieltro y teja: 6 clavos '
         'por pieza y sellado a mano en el faldón bajo.',
         'Colas de alero, fascia, sofito y perfil del hastial. Cierra los dos hastiales.',

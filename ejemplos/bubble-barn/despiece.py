@@ -54,16 +54,25 @@ for _l in LARGOS_BLOQUEO:
                             'escuadra', 'Bloqueo tangente a los huecos'))
 
 # --- Cerchas ---------------------------------------------------------------
-N_CABIOS = 4 * N_CERCHAS + 8          # 20 en cerchas + 8 en escaleras de vuelo
+# 2 por cercha + 2 por escalera de vuelo de hastial
+N_CABIOS_BAJOS = 2 * N_CERCHAS + 4    # 14
+N_CABIOS_ALTOS = 2 * N_CERCHAS + 4    # 14
+N_CABIOS = N_CABIOS_BAJOS + N_CABIOS_ALTOS
 N_COLAS = 2 * N_CERCHAS + 4           # 10 en cerchas + 4 en escaleras de vuelo
-AVANCE_CABIO = (CABIO_PUNTA_LARGA + CABIO_PUNTA_CORTA) / 2   # anidado a contrapelo
+AVANCE_BAJO = (CABIO_BAJO_LARGA + CABIO_BAJO_CORTA) / 2   # anidado a contrapelo
+AVANCE_ALTO = (CABIO_ALTO_LARGA + CABIO_ALTO_CORTA) / 2
 
 CERCHAS = [
-    Pieza('T1', N_CABIOS, '2x4', CABIO_PUNTA_LARGA,
+    Pieza('T1', N_CABIOS_BAJOS, '2x4', CABIO_BAJO_LARGA,
           f'{INGLETE}° los dos extremos',
-          'CABIO — la misma pieza para los 4 faldones; ingletes CONVERGIENDO al canto inferior',
-          avance=AVANCE_CABIO,
-          nota=f'punta corta {frac(CABIO_PUNTA_CORTA)}'),
+          'CABIO BAJO (faldón de 67.5°); ingletes CONVERGIENDO al canto inferior',
+          avance=AVANCE_BAJO,
+          nota=f'punta corta {frac(CABIO_BAJO_CORTA)}'),
+    Pieza('T1b', N_CABIOS_ALTOS, '2x4', CABIO_ALTO_LARGA,
+          f'{INGLETE}° los dos extremos',
+          'CABIO ALTO (faldón de 22.5°); ingletes CONVERGIENDO al canto inferior',
+          avance=AVANCE_ALTO,
+          nota=f'punta corta {frac(CABIO_ALTO_CORTA)}'),
     Pieza('T2', N_CERCHAS, '2x4', TIRANTE_LARGA,
           f'{INGLETE}° los dos extremos',
           'Tirante de rodilla; ingletes CONVERGIENDO al canto superior',
@@ -72,21 +81,31 @@ CERCHAS = [
           'Cordón inferior — único corte a escuadra de la cercha'),
     Pieza('T4', N_COLAS, '2x4', ALERO_LARGO,
           f'{INGLETE}° paralelos',
-          'Cola de alero acampanado (paralelogramo) — hace de cartela del talón',
+          'Cola de alero acampanado (paralelogramo), clavada SOBRE la cartela G3',
           avance=ALERO_LARGO),
     Pieza('T5', 16, '2x4', VUELO_HASTIAL, 'escuadra',
           'Travesaños de la escalera de vuelo en los hastiales'),
+    Pieza('T6', 1, '2x4', LARGO, 'escuadra',
+          'Rigidizador longitudinal clavado bajo los 5 tirantes de rodilla'),
+    Pieza('T7', 2, '2x4', LARGO, f'canto achaflanado a {INGLETE}°',
+          'Cuña de transición en los dos quiebros de RODILLA, bajo el tablero'),
+    Pieza('T8', 2, '2x4', LARGO_CUBIERTA, f'canto achaflanado a {INGLETE}°',
+          'Cuña de transición en los dos quiebros de ALERO, bajo el tablero'),
 ]
 
 TABLEROS = [
     Pieza('G1', 2 * N_CERCHAS, '1/2" contrachapado', 0, '—',
-          'Cartela de cumbrera 24" x 9", las dos caras'),
+          'Cartela de cumbrera 18" x 9", las dos caras'),
     Pieza('G2', 4 * N_CERCHAS, '1/2" contrachapado', 0, '—',
           'Cartela de rodilla 14" x 14", las dos caras'),
-    Pieza('S1', 4, '1/2" contrachapado', 96, '—',
-          f'Entablado de faldón, bandas de {frac(CUERDA)} de ancho'),
+    Pieza('G3', 4 * N_CERCHAS, '1/2" contrachapado', 0, '—',
+          'Cartela de TALÓN 14" x 10", las dos caras (la cola de alero va encima)'),
+    Pieza('S1', 2, '1/2" contrachapado', 96, '—',
+          f'Entablado de faldón bajo, bandas de {frac(CUERDA_BAJA)} de ancho'),
+    Pieza('S1b', 2, '1/2" contrachapado', 96, '—',
+          f'Entablado de faldón alto, bandas de {frac(CUERDA_ALTA)} de ancho'),
     Pieza('S2', 4, '1/2" contrachapado', 12, '—',
-          f'Remate de faldón hasta {frac(LARGO_CUBIERTA)}'),
+          f'Remate de los faldones hasta {frac(LARGO_CUBIERTA)}'),
     Pieza('S3', 2, '1/2" contrachapado', 96, '—',
           'Entablado de la falda del alero, bandas de 13"'),
     Pieza('S4', 2, '1/2" contrachapado', 12, '—',
@@ -94,12 +113,14 @@ TABLEROS = [
     Pieza('F6', 2, '3/4" contrachapado PT', 0, '—',
           'Tablero de la plataforma, hoja de 4x8'),
     Pieza('S5', 2, 'LP SmartSide / T1-11', 0, '—',
-          'Hastial recortado al perfil gambrel'),
+          f'Hastial recortado al perfil gambrel ({frac(ANCHO)} x {frac(FLECHA)})'),
 ]
 
 CARPINTERIA = [
-    Pieza('TR1', 8, '1x4', 30.0, f'ingletes a {INGLETE}°',
-          'Perfil gambrel del hastial, tramos de cabio (4 por hastial)'),
+    Pieza('TR1', 4, '1x4', CUERDA_BAJA + 3, f'ingletes a {INGLETE}°',
+          'Perfil gambrel del hastial, tramos de cabio bajo (2 por hastial)'),
+    Pieza('TR1c', 4, '1x4', CUERDA_ALTA + 3, f'ingletes a {INGLETE}°',
+          'Perfil gambrel del hastial, tramos de cabio alto (2 por hastial)'),
     Pieza('TR1b', 4, '1x4', 16.0, f'ingletes a {INGLETE}°',
           'Perfil gambrel del hastial, tramos de alero (2 por hastial)'),
     Pieza('TR2', 2, '1x4', LARGO_CUBIERTA, 'escuadra', 'Fascia del alero'),
@@ -223,16 +244,17 @@ HOJA = 48 * 96 / 144.0            # 32 sq ft
 
 
 def compra_tableros():
-    ply_gussets = (2 * N_CERCHAS * 24 * 9 + 4 * N_CERCHAS * 14 * 14) / 144.0
+    ply_gussets = (2 * N_CERCHAS * 18 * 9 + 4 * N_CERCHAS * 14 * 14
+                   + 4 * N_CERCHAS * 14 * 10) / 144.0
     ply_cubierta = AREA_CUBIERTA
     # el entablado sale en bandas de 27 9/16" y 13": de cada hoja de 48"
     # se saca una banda de 27 9/16" y otra de 20 7/16"
     hojas_cubierta = 6
     return [
-        dict(mat='1/2" contrachapado exterior', hojas=hojas_cubierta,
+        dict(mat='1/2" contrachapado exterior', hojas=7,
              detalle=f'cubierta {ply_cubierta:.1f} sq ft + cartelas '
-                     f'{ply_gussets:.1f} sq ft; ripar cada hoja en '
-                     f'{frac(CUERDA)} + 20 7/16"'),
+                     f'{ply_gussets:.1f} sq ft; fajas de {frac(CUERDA_BAJA)} '
+                     f'y {frac(CUERDA_ALTA)}'),
         dict(mat='3/4" contrachapado PT', hojas=2,
              detalle=f'tablero de la plataforma {LARGO*ANCHO/144:.0f} sq ft'),
         dict(mat='LP SmartSide / T1-11', hojas=2,
@@ -242,7 +264,7 @@ def compra_tableros():
 
 
 HERRAJES = [
-    (4, 'Anclaje helicoidal al terreno, 30", ~3000 lb, con fleje y tensor',
+    (4, 'Anclaje helicoidal 30", ~3000 lb, con fleje y tensor',
      'NO OPCIONAL: sustituye a los pilares enterrados'),
     (4, 'Base de poste galvanizada para 4x4, al patín', 'con tirafondos 1/4" x 3"'),
     (4, 'Capitel (post cap) galvanizado para 4x4', 'poste-carrera'),
