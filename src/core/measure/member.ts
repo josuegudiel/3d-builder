@@ -458,11 +458,9 @@ export function analyseJoint(a: Member, b: Member): JointReport {
   }
   const angle = angleBetween(dirA, dirB);
 
-  // Prolongación = dos piezas alineadas que se rematan una contra otra. Si son
-  // paralelas pero sus ejes no coinciden, van una al lado de la otra.
   const reach = 0.25 * (Math.hypot(a.width, a.thickness) + Math.hypot(b.width, b.thickness));
   const kind: JointKind = parallel
-    ? (outA.atEnd && outB.atEnd && near.dist <= reach ? 'prolongación' : 'suelto')
+    ? (isSplice(a, b, near.dist, reach) ? 'prolongación' : 'suelto')
     : outA.atEnd && outB.atEnd ? 'esquina'
       : outA.atEnd || outB.atEnd ? 'te'
         : 'cruce';
@@ -501,6 +499,28 @@ export function analyseJoint(a: Member, b: Member): JointReport {
     cuts: [cutA, cutB],
     directions: [dirA, dirB],
   };
+}
+
+/**
+ * ¿Son dos piezas paralelas un EMPALME, o simplemente van juntas?
+ *
+ * Lo que hace un empalme no es que sus ejes estén cerca, sino que una termine
+ * donde la otra empieza. Dos tablas apiladas tienen los ejes a un grueso de
+ * distancia y no se empalman: se solapan de punta a punta.
+ */
+function isSplice(a: Member, b: Member, gap: number, reach: number): boolean {
+  if (gap > reach) return false;
+  const u = a.axis;
+  const span = (m: Member): [number, number] => {
+    const t0 = dot(m.ends[0], u);
+    const t1 = dot(m.ends[1], u);
+    return t0 <= t1 ? [t0, t1] : [t1, t0];
+  };
+  const [a0, a1] = span(a);
+  const [b0, b1] = span(b);
+  const overlap = Math.min(a1, b1) - Math.max(a0, b0);
+  // Se tolera un pelo de solape (el que deja el dibujo), no un tramo entero.
+  return overlap <= 0.05 * Math.min(a.length, b.length);
 }
 
 /** El sentido de `axis` que forma ángulo agudo con `ref`. */

@@ -275,6 +275,12 @@ export function cutAngles(cutNormal: Vec3, frame: CutFrame): CutAngles {
     my = -my;
     mz = -mz;
   }
+  // Negar un cero da CERO NEGATIVO, y atan2(-0, -0) vale −180° mientras que
+  // atan2(0, 0) vale 0: el mismo plano habría dado dos ajustes distintos según
+  // cómo se escribiera su normal.
+  if (mx === 0) mx = 0;
+  if (my === 0) my = 0;
+  if (mz === 0) mz = 0;
 
   const miter = Math.atan2(my, mx);
   const bevel = Math.atan2(-mz, Math.hypot(mx, my));

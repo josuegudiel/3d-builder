@@ -1034,6 +1034,68 @@ describe('regresiones del sistema de ángulos', () => {
     expect(analyseJoint(a, b).sameFacePlane).toBe(false);
   });
 
+  it('dos tablas apiladas no son un empalme', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(2, 0.09, 0.04));
+    const b = box(geo, v3(0, 0, 0.04), v3(2, 0.09, 0.08));
+    const j = analyseJoint(measureMember(geo, a)!, measureMember(geo, b)!);
+    expect(j.parallel).toBe(true);
+    expect(j.kind).toBe('suelto');
+    expect(j.cuts[0]).toBeNull();
+  });
+
+  it('dos piezas testa con testa sí son un empalme', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(2, 0.09, 0.04));
+    const b = box(geo, v3(2, 0, 0), v3(4, 0.09, 0.04));
+    const j = analyseJoint(measureMember(geo, a)!, measureMember(geo, b)!);
+    expect(j.kind).toBe('prolongación');
+    closeTo(DEG(j.angle), 180, 1e-9);
+    expect(j.cuts[0]!.style).toBe('escuadra');
+  });
+
+  it('un empalme solapado no se confunde con uno a tope', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(2, 0.09, 0.04));
+    const b = box(geo, v3(1.8, 0, 0.04), v3(3.8, 0.09, 0.08));
+    expect(analyseJoint(measureMember(geo, a)!, measureMember(geo, b)!).kind).toBe('suelto');
+  });
+
+  it('un plano de corte paralelo al eje no depende del signo de su normal', () => {
+    const frame = { axis: v3(1, 0, 0), faceNormal: v3(0, 0, 1) };
+    for (const n of [v3(0, 0, 1), v3(0, 1, 0), v3(0, 1, 1)]) {
+      const a = cutAngles(n, frame);
+      const b = cutAngles(mul(n, -1), frame);
+      closeTo(a.miter, b.miter, 1e-12);
+      closeTo(a.bevel, b.bevel, 1e-12);
+    }
+  });
+
+  it('la cumbrera de un tejado a 30° da 120° y un corte de 30°', () => {
+    // Dos pares que salen de la cumbrera hacia abajo, con 30° de pendiente.
+    const pend = toRadians(30);
+    const par = (signo: number, caraAncha: Vec3) => {
+      const eje = rotateAround(v3(signo, 0, 0), v3(0, 1, 0), signo * pend);
+      const m = member(eje, caraAncha, mul(eje, 1.5), 3);
+      m.ends[0] = v3(0, 0, 0);
+      m.ends[1] = mul(eje, 3);
+      return m;
+    };
+
+    // Puestos de canto, que es como se montan: el corte es de inglete.
+    const canto = analyseJoint(par(-1, v3(0, 1, 0)), par(1, v3(0, 1, 0)));
+    expect(canto.kind).toBe('esquina');
+    closeTo(DEG(canto.angle), 120, 1e-6);
+    closeTo(Math.abs(DEG(canto.cuts[0]!.miter)), 30, 1e-6);
+    closeTo(Math.abs(DEG(canto.cuts[0]!.bevel)), 0, 1e-6);
+
+    // Tumbados, el mismo ángulo se corta inclinando la hoja: es bisel.
+    const plano = analyseJoint(par(-1, v3(0, 0, 1)), par(1, v3(0, 0, 1)));
+    closeTo(DEG(plano.angle), 120, 1e-6);
+    closeTo(Math.abs(DEG(plano.cuts[0]!.miter)), 0, 1e-6);
+    closeTo(Math.abs(DEG(plano.cuts[0]!.bevel)), 30, 1e-6);
+  });
+
   it('un cubo no se llama 4×4', () => {
     const geo = newGeometry();
     const faces = box(geo, v3(0, 0, 0), v3(0.089, 0.089, 0.089));
@@ -1132,24 +1194,40 @@ describe('regresiones de las booleanas', () => {
     closeTo(total, 3, 1e-9);
   });
 
-  it('unir dos esferas termina en un tiempo razonable', () => {
-    const geo = newGeometry();
-    const a = makeSphere(geo, 1, 32, 16).faces;
-    const geoB = newGeometry();
-    makeSphere(geoB, 1, 32, 16);
-    const b: Id[] = [];
-    for (const f of geoB.faces.keys()) {
-      const pts = geoB.loopPoints(f, 0).map((p) => v3(p.x + 1, p.y, p.z));
-      const id = addPolygonFace(geo, pts);
-      if (id !== null) b.push(id);
-    }
-    orientFacesConsistently(geo, b);
+  it('el coste de unir crece de forma lineal con el número de caras', () => {
+    // El reloj de pared depende de lo cargada que esté la máquina, así que lo
+    // que se mide es la FORMA de la curva: dos esferas de 1920 caras frente a
+    // dos de 240. Sin árbol de cajas el coste era cuadrático (ocho veces más
+    // caras costaban unas sesenta veces más); con él, unas ocho.
+    const dosEsferas = (seg: number, anillos: number) => {
+      const geo = newGeometry();
+      const a = makeSphere(geo, 1, seg, anillos).faces;
+      const otra = newGeometry();
+      makeSphere(otra, 1, seg, anillos);
+      const b: Id[] = [];
+      for (const f of otra.faces.keys()) {
+        const pts = otra.loopPoints(f, 0).map((p) => v3(p.x + 1, p.y, p.z));
+        const id = addPolygonFace(geo, pts);
+        if (id !== null) b.push(id);
+      }
+      orientFacesConsistently(geo, b);
+      return { geo, a, b };
+    };
+    const medir = (seg: number, anillos: number) => {
+      const { geo, a, b } = dosEsferas(seg, anillos);
+      const t0 = Date.now();
+      const r = booleanSolids(geo, a, b, 'union');
+      const ms = Date.now() - t0;
+      expect(r.ok).toBe(true);
+      expect(r.solid).toBe(true);
+      return Math.max(1, ms);
+    };
 
-    const t0 = Date.now();
-    const r = booleanSolids(geo, a, b, 'union');
-    const ms = Date.now() - t0;
-    expect(r.ok).toBe(true);
-    expect(ms).toBeLessThan(2000);
+    const pequeño = medir(12, 6);   // 240 caras
+    const grande = medir(32, 16);   // 1920 caras
+    expect(grande / pequeño).toBeLessThan(20);
+    // Y un techo absoluto muy holgado, por si algo se queda colgado.
+    expect(grande).toBeLessThan(20000);
   });
 
   it('intersecar caras distingue las aristas nuevas de las repasadas', () => {
