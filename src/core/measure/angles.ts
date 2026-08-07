@@ -119,7 +119,16 @@ export interface DihedralResult {
  *
  * Devuelve null si la arista no tiene exactamente dos caras.
  */
-export function dihedralAngle(geo: Geometry, edgeId: Id): DihedralResult | null {
+export function dihedralAngle(
+  geo: Geometry,
+  edgeId: Id,
+  /**
+   * Si ya se sabe si las caras forman un sólido cerrado, se pasa aquí: la
+   * comprobación recorre toda la componente y quien pregunta muchas veces
+   * seguidas —la herramienta, en cada movimiento del ratón— la tiene guardada.
+   */
+  solidHint?: (faceId: Id) => boolean,
+): DihedralResult | null {
   const users = [...(geo.edgeFaces.get(edgeId) ?? [])];
   if (users.length !== 2) return null;
   const [f1, f2] = users;
@@ -137,7 +146,7 @@ export function dihedralAngle(geo: Geometry, edgeId: Id): DihedralResult | null 
   const n2 = consistent ? b.plane.n : mul(b.plane.n, -1);
 
   let angle = dihedralFromNormals(a.plane.n, n2, d1);
-  const solid = isOrientedShell(geo, faceComponent(geo, f1));
+  const solid = solidHint ? solidHint(f1) : isOrientedShell(geo, faceComponent(geo, f1));
   if (!solid) angle = Math.min(angle, Math.PI * 2 - angle);
 
   return { angle, faces: [f1, f2], consistent, solid };

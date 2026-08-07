@@ -46,13 +46,21 @@ interface Shape {
   points: Vec3[];
   /** Normales de cara con su área, para elegir las direcciones candidatas. */
   normals: Array<{ n: Vec3; area: number }>;
+  /**
+   * Direcciones de arista con su longitud. Una pieza sin caras —un grupo hecho
+   * sólo de líneas— no tiene normales, pero sus aristas siguen apuntando en
+   * las direcciones de la pieza.
+   */
+  edges?: Array<{ d: Vec3; length: number }>;
 }
 
 /** Puntos y normales de un conjunto de caras de una geometría. */
 export function shapeOfFaces(geo: Geometry, faces: Iterable<Id>): Shape {
   const points: Vec3[] = [];
   const normals: Array<{ n: Vec3; area: number }> = [];
+  const edges: Array<{ d: Vec3; length: number }> = [];
   const seen = new Set<Id>();
+  const seenEdges = new Set<Id>();
   for (const fid of faces) {
     const f = geo.faces.get(fid);
     if (!f) continue;
@@ -62,15 +70,22 @@ export function shapeOfFaces(geo: Geometry, faces: Iterable<Id>): Shape {
       seen.add(v);
       points.push(geo.vertexPos(v));
     }
+    for (const eid of geo.faceEdges(fid)) {
+      if (seenEdges.has(eid)) continue;
+      seenEdges.add(eid);
+      const [p, q] = geo.edgeEndpoints(eid);
+      const d = sub(q, p);
+      if (lengthSq(d) > 0) edges.push({ d: normalize(d), length: Math.sqrt(lengthSq(d)) });
+    }
   }
-  return { points, normals };
+  return { points, normals, edges };
 }
 
 /** Puntos y normales de una instancia, ya transformados al espacio contenedor. */
 export function shapeOfInstance(model: Model, geo: Geometry, instanceId: Id): Shape | null {
   const inst = geo.instances.get(instanceId);
   if (!inst) return null;
-  const out: Shape = { points: [], normals: [] };
+  const out: Shape = { points: [], normals: [], edges: [] };
   walkDefinition(model, inst.definitionId, inst.transform, out, new Set());
   return out.points.length > 0 ? out : null;
 }
@@ -91,6 +106,14 @@ function walkDefinition(
   for (const fid of g.faces.keys()) {
     const f = g.faces.get(fid)!;
     out.normals.push({ n: normalize(transformNormal(m, f.plane.n)), area: faceArea(g, fid) });
+  }
+  for (const e of g.edges.values()) {
+    const p = transformPoint(m, g.vertexPos(e.a));
+    const q = transformPoint(m, g.vertexPos(e.b));
+    const d = sub(q, p);
+    if (lengthSq(d) > 0) {
+      (out.edges ??= []).push({ d: normalize(d), length: Math.sqrt(lengthSq(d)) });
+    }
   }
   for (const child of g.instances.values()) {
     walkDefinition(model, child.definitionId, matMul(m, child.transform), out, visiting);
@@ -138,6 +161,13 @@ function orientedBox(shape: Shape): { frame: Frame; min: Vec3; max: Vec3 } | nul
   for (const { n } of ordered) {
     addDir(n);
     if (dirs.length >= 16) break;
+  }
+  // Direcciones de arista, las más largas primero: son las que dan el marco
+  // exacto de una pieza dibujada sólo con líneas, donde no hay normales.
+  const byLength = [...(shape.edges ?? [])].sort((a, b) => b.length - a.length);
+  for (const { d } of byLength) {
+    addDir(d);
+    if (dirs.length >= 24) break;
   }
   // Ejes principales de la nube: es lo único que da un marco correcto cuando no
   // hay caras de las que sacar normales (un grupo de sólo aristas, una pieza
@@ -227,7 +257,10 @@ function principalAxes(points: readonly Vec3[]): Vec3[] {
   for (let sweep = 0; sweep < 24; sweep++) {
     const off = Math.abs(m[0][1]) + Math.abs(m[0][2]) + Math.abs(m[1][2]);
     const scale = Math.abs(m[0][0]) + Math.abs(m[1][1]) + Math.abs(m[2][2]);
-    if (off <= scale * 1e-18 || off === 0) break;
+    // El corte tiene que estar POR ENCIMA de la precisión de un double: con un
+    // umbral menor, Jacobi no termina nunca y sigue girando sobre el ruido de
+    // redondeo, que es justo lo que estropeaba las nubes de sección cuadrada.
+    if (off <= scale * 1e-15 || off === 0) break;
     for (const [p, q] of pairs) {
       if (Math.abs(m[p][q]) <= 1e-300) continue;
       const theta = (m[q][q] - m[p][p]) / (2 * m[p][q]);

@@ -3,15 +3,17 @@ import { newGeometry, expectValid, closeTo } from './helpers';
 import { Geometry } from '../src/core/model/geometry';
 import { Id } from '../src/core/model/types';
 import { Vec3, v3, normalize, rotateAround, add, mul, dot } from '../src/core/math/vec';
-import { addPolygonFace, makeSphere } from '../src/core/ops/solids';
-import { orientFacesConsistently, shellVolume, isSolid, flipFace } from '../src/core/topology/orient';
+import { addPolygonFace, makeSphere, makeTube } from '../src/core/ops/solids';
+import {
+  orientFacesConsistently, shellVolume, isSolid, flipFace, isOrientedShell, polygonShellVolume,
+} from '../src/core/topology/orient';
 import {
   toDegrees, toRadians, lineAngle, linePlaneAngle, planeAngle, dihedralAngle,
   angleBetweenEdges, edgeDirectionAngle, cutAngles, miterPlaneNormal, jointAngle,
   miterSetting, faceEdgeDirection, wrapTurn,
 } from '../src/core/measure/angles';
 import {
-  measureMember, measureShape, analyseJoint, nominalSection, Member, membersTouch,
+  measureMember, measureShape, shapeOfFaces, analyseJoint, nominalSection, Member, membersTouch,
 } from '../src/core/measure/member';
 import { booleanSolids, booleanInstances, bakeInto } from '../src/core/ops/boolean';
 import { intersectFaceSets, faceLineIntervals } from '../src/core/ops/intersect';
@@ -1237,5 +1239,124 @@ describe('regresiones de las booleanas', () => {
     const r = intersectFaceSets(geo, a, a);
     expect(r.created.length).toBe(0);
     expect(geo.edges.size).toBe(12);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regresiones de la segunda vuelta de revisión
+// ---------------------------------------------------------------------------
+
+describe('regresiones de la segunda revisión', () => {
+  it('una pieza dibujada sólo con líneas encuentra su marco', () => {
+    // Cubo de alambre girado: sin caras, sólo aristas.
+    const geo = newGeometry();
+    const ang = toRadians(31);
+    const r = (p: Vec3) => rotateAround(p, v3(0, 0, 1), ang);
+    const c = [
+      v3(0, 0, 0), v3(1, 0, 0), v3(1, 1, 0), v3(0, 1, 0),
+      v3(0, 0, 1), v3(1, 0, 1), v3(1, 1, 1), v3(0, 1, 1),
+    ].map(r);
+    const pares: Array<[number, number]> = [
+      [0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4],
+      [0, 4], [1, 5], [2, 6], [3, 7],
+    ];
+    for (const [i, j] of pares) drawSegment(geo, c[i], c[j]);
+    const m = measureShape(shapeOfFaces(geo, []))!;
+    void m;
+
+    // La forma se toma de la geometría completa, no de un conjunto de caras.
+    const shape = {
+      points: [...geo.vertices.values()].map((v) => v.p),
+      normals: [],
+      edges: [...geo.edges.values()].map((e) => {
+        const [p, q] = geo.edgeEndpoints(e.id);
+        const d = v3(q.x - p.x, q.y - p.y, q.z - p.z);
+        const l = Math.hypot(d.x, d.y, d.z);
+        return { d: v3(d.x / l, d.y / l, d.z / l), length: l };
+      }),
+    };
+    const pieza = measureShape(shape)!;
+    closeTo(pieza.length, 1, 1e-9);
+    closeTo(pieza.width, 1, 1e-9);
+    closeTo(pieza.thickness, 1, 1e-9);
+  });
+
+  it('una línea dibujada dentro de una cara no anula el diedro del sólido', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(2, 1, 1));
+    const b = box(geo, v3(0, 1, 0), v3(1, 2, 1));
+    booleanSolids(geo, a, b, 'union');
+
+    const rincon = () => {
+      for (const e of geo.edges.keys()) {
+        const [p, q] = geo.edgeEndpoints(e);
+        if (Math.abs(p.x - 1) > 1e-9 || Math.abs(p.y - 1) > 1e-9) continue;
+        if (Math.abs(q.x - 1) > 1e-9 || Math.abs(q.y - 1) > 1e-9) continue;
+        return dihedralAngle(geo, e);
+      }
+      return null;
+    };
+    closeTo(DEG(rincon()!.angle), 270, 1e-6);
+
+    // Una línea que entra en la tapa y no llega al otro lado.
+    drawSegment(geo, v3(0.2, 0.2, 1), v3(0.6, 0.6, 1));
+    const tras = rincon()!;
+    expect(tras.solid).toBe(true);
+    closeTo(DEG(tras.angle), 270, 1e-6);
+  });
+
+  it('isOrientedShell rechaza dos cáscaras a la vez', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(1, 1, 1));
+    const b = box(geo, v3(4, 4, 4), v3(5, 5, 5));
+    expect(isOrientedShell(geo, a)).toBe(true);
+    expect(isOrientedShell(geo, [...a, ...b])).toBe(false);
+  });
+
+  it('una booleana vacía no borra las piezas del usuario', () => {
+    const model = new Model();
+    const a = boxGroup(model, v3(0, 0, 0), v3(1, 1, 1));
+    const b = boxGroup(model, v3(5, 5, 5), v3(6, 6, 6));
+    const r = booleanInstances(model, model.rootGeometry, a, b, 'intersect');
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('se quedan como estaban');
+    expect(model.rootGeometry.instances.size).toBe(2);
+    expect(model.rootGeometry.instances.has(a)).toBe(true);
+    expect(model.rootGeometry.instances.has(b)).toBe(true);
+  });
+
+  it('no borra una línea del usuario que esté en un plano de la operación', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(1, 1, 1));
+    const b = box(geo, v3(4, 4, 0), v3(5, 5, 1));
+    // Línea suelta en z = 1, que es plano de las dos piezas, y dentro de la caja.
+    drawSegment(geo, v3(2, 2, 1), v3(3, 3, 1));
+    booleanSolids(geo, a, b, 'union');
+    expect(geo.findVertexAt(v3(2, 2, 1))).not.toBeNull();
+    expect(geo.findVertexAt(v3(3, 3, 1))).not.toBeNull();
+  });
+
+  it('se niega a operar si hay geometría ajena en los planos implicados', () => {
+    const geo = newGeometry();
+    const losa = box(geo, v3(-20, -20, -1), v3(20, 20, 0));
+    const a = box(geo, v3(0, 0, 0), v3(1, 1, 1));
+    const b = box(geo, v3(0.5, 0.5, 0.5), v3(1.5, 1.5, 1.5));
+    const r = booleanSolids(geo, a, b, 'union');
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('otra geometría');
+    // Y no ha tocado nada.
+    expect(losa.every((f) => geo.faces.has(f))).toBe(true);
+    expect(a.every((f) => geo.faces.has(f))).toBe(true);
+  });
+
+  it('el volumen por polígonos coincide con el de los triángulos', () => {
+    const geo = newGeometry();
+    const caja = box(geo, v3(0, 0, 0), v3(2, 3, 4));
+    closeTo(polygonShellVolume(geo, caja), 24, 1e-9);
+    closeTo(polygonShellVolume(geo, caja), shellVolume(geo, caja), 1e-9);
+
+    const otra = newGeometry();
+    const tubo = makeTube(otra, 1, 0.6, 2, 24).faces;
+    closeTo(polygonShellVolume(otra, tubo), shellVolume(otra, tubo), 1e-9);
   });
 });

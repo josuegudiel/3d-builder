@@ -173,6 +173,27 @@ const hTapada = await page.evaluate(()=>window.form3d.editor.tool?.hovered ?? nu
 check('una arista tapada por el sólido no se señala',
   !hTapada || hTapada.kind !== 'edge', JSON.stringify(hTapada));
 
+// 10. Una arista a 20 mm por detrás de una cara opaca no se puede señalar
+await page.evaluate(()=>{
+  const app = window.form3d;
+  app.editor.replaceModel(new (app.editor.model.constructor)());
+  const api = app.api;
+  // Cara de 1 x 1 m en el plano XZ y una arista 20 mm por detrás.
+  api.polyline([api.p(0,0,0), api.p(1,0,0), api.p(1,0,1), api.p(0,0,1)], true);
+  api.segment(api.p(0.2,0.02,0.5), api.p(0.8,0.02,0.5));
+  api.view('front');
+  api.zoomExtents();
+});
+await page.waitForTimeout(350);
+const detras = await page.evaluate(()=>{
+  const s = window.form3d.viewport.worldToScreen({x:0.5,y:0.02,z:0.5});
+  return { x:s.x, y:s.y };
+});
+await page.mouse.move(box.x+detras.x, box.y+detras.y); await page.waitForTimeout(150);
+const hDetras = await page.evaluate(()=>window.form3d.editor.tool?.hovered ?? null);
+check('una arista 20 mm detrás de una cara no se señala',
+  hDetras !== null && hDetras.kind === 'face', JSON.stringify(hDetras));
+
 check('sin errores de consola', errs.length===0, errs.slice(0,2).join(' | '));
 const bad = ok.filter(o=>!o[1]);
 console.log(`\n${ok.length-bad.length}/${ok.length} correctas`);

@@ -120,6 +120,9 @@ export class AngleTool extends BaseTool {
 
   // -------------------------------------------------------------------------
 
+  /** Consulta memorizada: ¿es la cara parte de un sólido cerrado? */
+  private readonly solidOf = (faceId: Id): boolean => this.editor.shellOf(faceId);
+
   private pick(e: PointerInfo): Target | null {
     const hit = pickEntity(
       this.editor.viewport.builder.pick, this.editor.viewport, e.clientX, e.clientY,
@@ -139,7 +142,7 @@ export class AngleTool extends BaseTool {
 
     if (t.kind === 'edge') {
       if (!geo.edges.has(t.id)) return '';
-      const d = dihedralAngle(geo, t.id);
+      const d = dihedralAngle(geo, t.id, this.solidOf);
       if (d) return `Diedro ${formatAngle(d.angle, u)}`;
       return `Arista de ${formatLength(geo.edgeLength(t.id), u)}`;
     }
@@ -180,7 +183,7 @@ export class AngleTool extends BaseTool {
       for (const e of geo.faceEdges(a.id)) {
         const users = geo.edgeFaces.get(e);
         if (users?.has(b.id)) {
-          const d = dihedralAngle(geo, e);
+          const d = dihedralAngle(geo, e, this.solidOf);
           if (d) return `Diedro ${formatAngle(d.angle, u)} · entre planos ${formatAngle(planeAngle(fa.plane, fb.plane), u)}`;
         }
       }
@@ -299,11 +302,12 @@ export function selectionAngleSummary(
   edges: readonly Id[],
   faces: readonly Id[],
   units: Parameters<typeof formatAngle>[1],
+  solidOf?: (faceId: Id) => boolean,
 ): string | null {
   if (edges.some((e) => !geo.edges.has(e)) || faces.some((f) => !geo.faces.has(f))) return null;
 
   if (edges.length === 1 && faces.length === 0) {
-    const d = dihedralAngle(geo, edges[0]);
+    const d = dihedralAngle(geo, edges[0], solidOf);
     return d ? `Diedro ${formatAngle(d.angle, units)}` : null;
   }
   if (edges.length === 2 && faces.length === 0) {
@@ -325,7 +329,7 @@ export function selectionAngleSummary(
     if (!fa || !fb) return null;
     for (const e of geo.faceEdges(faces[0])) {
       if (geo.edgeFaces.get(e)?.has(faces[1])) {
-        const d = dihedralAngle(geo, e);
+        const d = dihedralAngle(geo, e, solidOf);
         if (d) return `Diedro ${formatAngle(d.angle, units)}`;
       }
     }

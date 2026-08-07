@@ -374,6 +374,34 @@ export function booleanSolids(
   const planes: Plane[] = [...planesOfFaces(geo, A), ...planesOfFaces(geo, B)];
   const planeKeys = new Set(planes.map((p) => planeKey(planeCanonical(p))));
 
+  // Geometría ajena metida en los planos de la operación y dentro de su caja:
+  // al reconstruir el plano acabaría compartiendo aristas con el resultado y
+  // dejándolo abierto. Es mejor no empezar que devolver un sólido roto.
+  const propias = new Set<Id>([...A, ...B]);
+  for (const fid of geo.faces.keys()) {
+    if (propias.has(fid)) continue;
+    const f = geo.faces.get(fid)!;
+    if (!planeKeys.has(planeKey(planeCanonical(f.plane)))) continue;
+    // Basta con que la cara ajena ALCANCE la zona: una losa de cuarenta metros
+    // tiene su centro lejos, pero al reconstruir el plano comparte aristas con
+    // el resultado igual que si estuviera encima.
+    if (boxesOverlap(facesBox(geo, [fid]), box, EPS)) {
+      return {
+        ok: false,
+        message: 'Hay otra geometría en los planos de las dos piezas: agrúpalas antes de operar.',
+        faces: [],
+        solid: false,
+      };
+    }
+  }
+
+  // Aristas que YA estaban sueltas: son del usuario, no restos de la operación.
+  const sueltasAntes = new Set<Id>();
+  for (const e of geo.edges.values()) {
+    const users = geo.edgeFaces.get(e.id);
+    if (!users || users.size === 0) sueltasAntes.add(e.id);
+  }
+
   const ins = intersectFaceSets(geo, A, B);
   rebuildFaces(geo, planes, { newEdges: new Set(ins.edges) });
 
@@ -405,7 +433,7 @@ export function booleanSolids(
       keep.push(fid);
     }
     for (const fid of drop) geo.removeFace(fid);
-    cleanDangling(geo, box, planeKeys);
+    cleanDangling(geo, box, planeKeys, sueltasAntes);
     return keep;
   };
 
@@ -456,6 +484,13 @@ function intersectBox(a: Box3, b: Box3): Box3 {
     min: v3(Math.max(a.min.x, b.min.x), Math.max(a.min.y, b.min.y), Math.max(a.min.z, b.min.z)),
     max: v3(Math.min(a.max.x, b.max.x), Math.min(a.max.y, b.max.y), Math.min(a.max.z, b.max.z)),
   };
+}
+
+function boxesOverlap(a: Box3, b: Box3, margin: number): boolean {
+  if (boxIsEmpty(a) || boxIsEmpty(b)) return false;
+  return a.min.x <= b.max.x + margin && a.max.x >= b.min.x - margin
+    && a.min.y <= b.max.y + margin && a.max.y >= b.min.y - margin
+    && a.min.z <= b.max.z + margin && a.max.z >= b.min.z - margin;
 }
 
 function pointInBox(p: Vec3, b: Box3, margin: number): boolean {
@@ -513,17 +548,24 @@ function removeCoplanarSeams(
 /**
  * Retira aristas y vértices que se han quedado sin cara.
  *
- * Se limita a las aristas que están EN uno de los planos de la operación y
- * dentro de su caja: una línea de construcción que el usuario dejó cruzando la
- * zona no es un resto de la booleana y tiene que seguir ahí.
+ * Se limita a las aristas que están EN uno de los planos de la operación,
+ * dentro de su caja y que NO estaban ya sueltas antes de empezar: una línea de
+ * construcción del usuario no es un resto de la booleana, esté donde esté.
  */
-function cleanDangling(geo: Geometry, box: Box3, planeKeys: ReadonlySet<string>): void {
+function cleanDangling(
+  geo: Geometry,
+  box: Box3,
+  planeKeys: ReadonlySet<string>,
+  preexisting: ReadonlySet<Id>,
+): void {
   if (boxIsEmpty(box)) return;
   const m = EPS * 10;
 
   for (const e of [...geo.edges.values()]) {
     const users = geo.edgeFaces.get(e.id);
     if (users && users.size > 0) continue;
+    // Ya estaba suelta antes de empezar: la dibujó el usuario.
+    if (preexisting.has(e.id)) continue;
     const a = geo.vertices.get(e.a);
     const b = geo.vertices.get(e.b);
     if (!a || !b) continue;
@@ -608,7 +650,20 @@ export function booleanInstances(
   bakeInto(model, temp, instB.definitionId, instB.transform, setB, new Set());
 
   const result = booleanSolids(temp, setA, setB, op);
-  if (!result.ok) return { ...result, instanceId: null, joint, members: [memberA, memberB] };
+  if (!result.ok || result.faces.length === 0) {
+    // Quedarse sin caras es un resultado legítimo de la operación, pero no una
+    // razón para borrarle al usuario las dos piezas que tenía.
+    return {
+      ...result,
+      ok: false,
+      message: result.faces.length === 0 && result.ok
+        ? 'La operación no deja nada: las piezas se quedan como estaban.'
+        : result.message,
+      instanceId: null,
+      joint,
+      members: [memberA, memberB],
+    };
+  }
 
   const name = `${BOOLEAN_LABEL[op]} (${instA.name || 'grupo'} + ${instB.name || 'grupo'})`;
   const def: Definition = model.createDefinition('group', name);

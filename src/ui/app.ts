@@ -1019,7 +1019,7 @@ export class AppUI {
     // Ángulos de la selección: diedro de una arista, ángulo entre dos aristas
     // o entre dos caras, y unión completa entre dos piezas.
     const angle = selectionAngleSummary(
-      geo, [...sel.edges], [...sel.faces], units,
+      geo, [...sel.edges], [...sel.faces], units, (f) => this.editor.shellOf(f),
     );
     if (angle) rows.push(row('Ángulo', escapeHtml(angle)));
 

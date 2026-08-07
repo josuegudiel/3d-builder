@@ -224,8 +224,18 @@ export class Form3DApi {
 
   /** Ángulo diedro de una arista, en grados. null si no tiene dos caras. */
   dihedral(edgeId: Id): number | null {
-    const d = dihedralAngle(this.geometry, edgeId);
+    const d = dihedralAngle(this.geometry, edgeId, (f) => this.editor.shellOf(f));
     return d ? toDegrees(d.angle) : null;
+  }
+
+  /** Diedro de todas las aristas del contexto, en grados. */
+  dihedrals(): Array<{ edge: Id; angle: number }> {
+    const out: Array<{ edge: Id; angle: number }> = [];
+    for (const e of this.geometry.edges.keys()) {
+      const d = dihedralAngle(this.geometry, e, (f) => this.editor.shellOf(f));
+      if (d) out.push({ edge: e, angle: toDegrees(d.angle) });
+    }
+    return out;
   }
 
   /** Ángulo entre dos aristas, en grados. */

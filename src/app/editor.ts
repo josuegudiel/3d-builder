@@ -7,6 +7,7 @@ import { Plane, planeTransform } from '../core/math/plane';
 import { Viewport } from '../render/viewport';
 import { RenderOptions, DEFAULT_RENDER_OPTIONS } from '../render/scene';
 import { History } from '../core/history';
+import { faceComponent, isOrientedShell } from '../core/topology/orient';
 import {
   Selection, emptySelection, clearSelection, pruneSelection, describeSelection,
 } from '../core/selection';
@@ -213,6 +214,7 @@ export class Editor {
 
   /** Reconstruye la escena completa (tras un cambio en el modelo). */
   refreshModel(): void {
+    this.shellMemo.clear();
     pruneSelection(this.selection, this.geometry);
     this.renderOptions.context = this.contextPath;
     this.renderOptions.selection = this.selection;
@@ -220,6 +222,28 @@ export class Editor {
     this.refreshOverlay();
     this.events.onModelChanged?.();
   }
+
+  /**
+   * ¿Pertenece la cara a una cáscara cerrada y bien orientada?
+   *
+   * Responderlo exige recorrer toda la componente, y el ángulo diedro lo
+   * pregunta en cada movimiento del ratón: sin recordar la respuesta, pasar el
+   * cursor por una esfera de cuatro mil caras costaba 37 ms por movimiento. Se
+   * guarda para TODAS las caras de la componente de una vez y se olvida en
+   * `refreshModel`, que es por donde pasa cualquier cambio del modelo.
+   */
+  shellOf(faceId: Id): boolean {
+    const cached = this.shellMemo.get(faceId);
+    if (cached !== undefined) return cached;
+    const geo = this.geometry;
+    if (!geo.faces.has(faceId)) return false;
+    const component = faceComponent(geo, faceId);
+    const ok = isOrientedShell(geo, component);
+    for (const f of component) this.shellMemo.set(f, ok);
+    return ok;
+  }
+
+  private readonly shellMemo = new Map<Id, boolean>();
 
   /** Redibuja sólo la capa de superposición (previsualizaciones). */
   refreshOverlay(): void {
