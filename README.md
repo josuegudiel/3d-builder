@@ -177,10 +177,14 @@ arista en el sentido en que la recorre la primera cara:
 
     θ = 180° − ángulo_con_signo(n₁, n₂, d₁)
 
-con n₁ y n₂ las normales exteriores y d₁ el sentido de recorrido. Si las dos
-caras recorren la arista en el mismo sentido, la cáscara no está orientada de
-forma coherente y se calcula como si la segunda estuviera invertida: el ángulo
-geométrico es el mismo.
+con n₁ y n₂ las normales exteriores y d₁ el sentido de recorrido.
+
+Esa lectura sólo tiene sentido si hay un «dentro» que medir, así que se
+comprueba antes que las caras formen una cáscara cerrada y bien orientada. En
+caras sueltas, 90° y 270° describirían el mismo pliegue y cuál de los dos
+saliera dependería únicamente del sentido en que se dibujó cada polígono; en
+ese caso se devuelve el que no pasa de 180°, que es el único dato que la
+geometría respalda.
 
 ### Inglete y bisel
 
@@ -229,6 +233,18 @@ Saber si un punto está dentro de un sólido se resuelve disparando un rayo y
 contando cuántas veces atraviesa la cáscara. Si un rayo pasa demasiado cerca de
 una arista el recuento no es de fiar, así que esa dirección se descarta y se
 prueba otra; la respuesta se decide por mayoría entre las direcciones limpias.
+Los triángulos se recorren a través de un árbol de cajas envolventes: sin él,
+unir dos esferas de 32 segmentos costaba casi cinco segundos.
+
+Dos detalles importan más de lo que parece. El primero es a qué distancia se
+mira a cada lado de una cara: cualquier valor mayor que el rasgo más fino del
+modelo se lo come, así que se toma justo por encima de la resolución de los
+números en coma flotante, muy por debajo de la tolerancia de soldadura. El
+segundo es qué caras entran en la operación: compartir plano no basta —el suelo
+de una casa a cincuenta metros también está en z = 0—, así que además tienen
+que caer dentro de la caja de las dos piezas. Y las costuras coplanares sólo se
+quitan donde las piezas se solapan: una línea que el usuario dibujó para
+dividir una cara no es un resto de la booleana.
 
 ## Mapa del código
 
@@ -259,8 +275,8 @@ cara) y se usa en las pruebas después de cada operación.
 ## Pruebas
 
 ```bash
-npm test          # 422 pruebas del núcleo geométrico
-npm run test:e2e  # 212 comprobaciones conduciendo la aplicación en Chromium
+npm test          # 449 pruebas del núcleo geométrico
+npm run test:e2e  # 221 comprobaciones conduciendo la aplicación en Chromium
                   # (construye, sirve, prueba y apaga el servidor)
 npm run verify    # tipos + núcleo + navegador, todo seguido
 ```

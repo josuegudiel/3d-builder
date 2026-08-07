@@ -104,7 +104,17 @@ export function pickEntity(
   }
 
   // Margen de profundidad para considerar "visible" lo que está justo delante.
-  const depthSlack = faceT === Infinity ? Infinity : faceT + Math.max(faceT * 1e-3, 1e-5);
+  //
+  // No basta con un margen relativo: sobre una superficie que se ve muy
+  // escorzada —el suelo visto desde poca altura— un solo píxel de pantalla son
+  // centímetros de profundidad, así que el borde MÁS LEJANO de una cara queda
+  // "detrás" de la propia cara y dejaba de poderse señalar. El margen se toma
+  // por tanto del tamaño real que ocupa la tolerancia de enganche a esa
+  // distancia, que es justo la profundidad que puede haber de diferencia entre
+  // lo que está bajo el cursor y lo que cae dentro de su radio.
+  const depthSlack = faceT === Infinity
+    ? Infinity
+    : faceT + Math.max(faceT * 1e-3, 1e-5, worldRadius(SNAP_PIXELS.edge * 4, faceT));
 
   // --- 2. Vértices ----------------------------------------------------------
   let best: PickResult | null = null;

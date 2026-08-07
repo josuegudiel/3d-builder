@@ -35,7 +35,7 @@ type Target =
 export class AngleTool extends BaseTool {
   readonly id = 'angle';
   readonly name = 'Ángulo';
-  readonly statusHint = 'Señala una arista para ver su diedro, o elige dos elementos para medir el ángulo entre ellos.';
+  readonly statusHint = 'Señala una arista para ver su diedro, o elige dos elementos para medir el ángulo. Con Ctrl, el segundo clic deja puesta la cota.';
 
   private first: Target | null = null;
 
@@ -49,12 +49,13 @@ export class AngleTool extends BaseTool {
     const hit = this.pick(e);
     this.setHovered(hit ? { kind: hit.kind, id: hit.id } : null);
 
-    if (!this.first) {
+    const first = this.validFirst();
+    if (!first) {
       this.editor.showMeasurement('Ángulo', hit ? this.singleReading(hit) : '', false);
       return;
     }
     if (hit) {
-      const text = this.pairReading(this.first, hit);
+      const text = this.pairReading(first, hit);
       this.editor.showMeasurement('Ángulo', text ?? '', false);
     }
     this.editor.refreshOverlay();
@@ -65,28 +66,51 @@ export class AngleTool extends BaseTool {
     const hit = this.pick(e);
     if (!hit) return;
 
-    if (!this.first) {
+    const first = this.validFirst();
+    if (!first) {
       this.first = hit;
       const single = this.singleReading(hit);
       this.editor.setStatus(single
-        ? `${single}. Elige el segundo elemento para medir el ángulo entre los dos.`
+        ? `${single}. Elige el segundo elemento; con Ctrl se queda la cota puesta.`
         : 'Elige el segundo elemento.');
       this.editor.refreshOverlay();
       return;
     }
 
-    if (hit.kind === this.first.kind && hit.id === this.first.id) return;
+    if (hit.kind === first.kind && hit.id === first.id) return;
 
-    const text = this.pairReading(this.first, hit);
+    const text = this.pairReading(first, hit);
     if (text) {
       this.editor.setStatus(text);
-      this.placeDimension(this.first, hit);
+      // La cota permanente sólo se crea si se pide: medir no debe ensuciar el
+      // modelo con anotaciones que el usuario no ha decidido poner.
+      if (e.ctrlKey) this.placeDimension(first, hit);
     } else {
       this.editor.setStatus('No se puede medir el ángulo entre esos dos elementos.');
     }
     this.first = null;
     this.setHovered(null);
     this.editor.refreshOverlay();
+  }
+
+  /**
+   * Primer elemento elegido, sólo si sigue existiendo. Deshacer o borrar puede
+   * habérselo llevado, y guardar un identificador muerto hacía que fallara cada
+   * redibujado y, con él, cualquier operación posterior.
+   */
+  private validFirst(): Target | null {
+    const first = this.first;
+    if (!first) return null;
+    if (this.exists(first)) return first;
+    this.first = null;
+    return null;
+  }
+
+  private exists(t: Target): boolean {
+    const geo = this.editor.geometry;
+    if (t.kind === 'edge') return geo.edges.has(t.id);
+    if (t.kind === 'face') return geo.faces.has(t.id);
+    return geo.instances.has(t.id);
   }
 
   override cancel(): void {
@@ -114,6 +138,7 @@ export class AngleTool extends BaseTool {
     const u = this.editor.units;
 
     if (t.kind === 'edge') {
+      if (!geo.edges.has(t.id)) return '';
       const d = dihedralAngle(geo, t.id);
       if (d) return `Diedro ${formatAngle(d.angle, u)}`;
       return `Arista de ${formatLength(geo.edgeLength(t.id), u)}`;
@@ -136,6 +161,7 @@ export class AngleTool extends BaseTool {
     const u = this.editor.units;
 
     if (a.kind === 'edge' && b.kind === 'edge') {
+      if (!geo.edges.has(a.id) || !geo.edges.has(b.id)) return null;
       const shared = angleBetweenEdges(geo, a.id, b.id);
       if (shared) {
         return `Ángulo ${formatAngle(shared.angle, u)} · suplementario ${formatAngle(Math.PI - shared.angle, u)}`;
@@ -186,6 +212,7 @@ export class AngleTool extends BaseTool {
   private directionOf(t: Target): Vec3 | null {
     const geo = this.editor.geometry;
     if (t.kind === 'edge') {
+      if (!geo.edges.has(t.id)) return null;
       const [p, q] = geo.edgeEndpoints(t.id);
       const d = sub(q, p);
       return lengthSq(d) > 0 ? normalize(d) : null;
@@ -206,6 +233,7 @@ export class AngleTool extends BaseTool {
     const geo = this.editor.geometry;
 
     if (a.kind === 'edge' && b.kind === 'edge') {
+      if (!geo.edges.has(a.id) || !geo.edges.has(b.id)) return;
       const shared = angleBetweenEdges(geo, a.id, b.id);
       if (!shared) return;
       const vertex = this.world(geo.vertexPos(shared.vertex));
@@ -229,8 +257,8 @@ export class AngleTool extends BaseTool {
       const j = analyseJoint(ma, mb);
       const r = Math.max(EPS * 10, Math.min(ma.length, mb.length) * 0.25);
       const vertex = this.world(j.point);
-      const pa = addScaled(vertex, this.editor.toWorldVector(j.cuts[0].outward), r);
-      const pb = addScaled(vertex, this.editor.toWorldVector(j.cuts[1].outward), r);
+      const pa = addScaled(vertex, this.editor.toWorldVector(j.directions[0]), r);
+      const pb = addScaled(vertex, this.editor.toWorldVector(j.directions[1]), r);
       this.editor.edit('Cota angular', () => {
         this.editor.model.addAngleDimension(
           this.editor.toRoot(vertex), this.editor.toRoot(pa), this.editor.toRoot(pb), r,
@@ -242,7 +270,7 @@ export class AngleTool extends BaseTool {
   override drawOverlay(overlay: Overlay): void {
     this.drawHover(overlay);
     const geo = this.editor.geometry;
-    const first = this.first;
+    const first = this.validFirst();
     if (!first) return;
 
     if (first.kind === 'edge') {
@@ -272,6 +300,8 @@ export function selectionAngleSummary(
   faces: readonly Id[],
   units: Parameters<typeof formatAngle>[1],
 ): string | null {
+  if (edges.some((e) => !geo.edges.has(e)) || faces.some((f) => !geo.faces.has(f))) return null;
+
   if (edges.length === 1 && faces.length === 0) {
     const d = dihedralAngle(geo, edges[0]);
     return d ? `Diedro ${formatAngle(d.angle, units)}` : null;

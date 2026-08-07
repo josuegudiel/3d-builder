@@ -167,6 +167,30 @@ export function isSolid(geo: Geometry, faceIds: Iterable<Id>): boolean {
   return true;
 }
 
+/**
+ * ¿Forman las caras una cáscara CERRADA Y BIEN ORIENTADA, con las normales
+ * hacia fuera?
+ *
+ * Es más exigente que `isSolid`: además de que cada arista tenga dos caras,
+ * comprueba que las recorran en sentidos opuestos y que el volumen con signo
+ * sea positivo. Sólo cuando se cumplen las tres cosas tiene sentido hablar del
+ * "interior" de la superficie, y por tanto de un ángulo diedro reflejo.
+ */
+export function isOrientedShell(geo: Geometry, faceIds: Iterable<Id>): boolean {
+  const set = new Set(faceIds);
+  if (!isSolid(geo, set)) return false;
+  for (const fid of set) {
+    for (const eid of geo.faceEdges(fid)) {
+      const users = [...(geo.edgeFaces.get(eid) ?? [])];
+      if (users.length !== 2) return false;
+      const d1 = traversalDir(geo, users[0], eid);
+      const d2 = traversalDir(geo, users[1], eid);
+      if (d1 === null || d2 === null || d1 === d2) return false;
+    }
+  }
+  return shellVolume(geo, set) > 0;
+}
+
 /** Componente conexa de caras (por aristas compartidas) que contiene `seed`. */
 export function faceComponent(geo: Geometry, seed: Id): Id[] {
   if (!geo.faces.has(seed)) return [];

@@ -8,7 +8,7 @@ import { Mat4, IDENTITY, matMul, transformPoint } from '../math/mat';
 import {
   Plane, planeFromPolygon, planeTransform, planeKey, planeCanonical, planeEquals,
 } from '../math/plane';
-import { Box3, emptyBox, expandBox, boxDiagonal, boxIsEmpty } from '../math/geom';
+import { Box3, emptyBox, expandBox, unionBox, boxDiagonal, boxIsEmpty } from '../math/geom';
 import { EPS } from '../math/tolerance';
 import { triangulateFace } from '../topology/triangulate';
 import { rebuildFaces } from '../topology/rebuild';
@@ -76,6 +76,8 @@ const RAY_DIRECTIONS: Vec3[] = [
 export class SolidMembership {
   private readonly tris: Tri[] = [];
   private readonly box: Box3 = emptyBox();
+  /** Árbol de cajas envolventes sobre `tris`, para no recorrerlos todos. */
+  private readonly bvh: BvhNode[] = [];
   /** true si los triángulos forman una cáscara cerrada y bien orientada. */
   readonly closed: boolean;
 
@@ -94,6 +96,7 @@ export class SolidMembership {
       }
     }
     this.closed = this.checkClosed();
+    this.bvh = buildBvh(this.tris);
   }
 
   get triangleCount(): number {
@@ -148,18 +151,126 @@ export class SolidMembership {
    */
   private parity(origin: Vec3, dir: Vec3, force = false): boolean | null {
     let count = 0;
-    for (const t of this.tris) {
-      const h = rayTriangle(origin, dir, t);
-      if (!h) continue;
-      if (h.t <= 1e-12) continue;
-      if (!force) {
-        const w = 1 - h.u - h.v;
-        if (h.u < 1e-9 || h.v < 1e-9 || w < 1e-9) return null;
+    const inv = v3(1 / dir.x, 1 / dir.y, 1 / dir.z);
+    // Recorrido del árbol con una pila explícita: sin él, cada rayo tocaría
+    // los miles de triángulos de la pieza y la clasificación de una unión de
+    // dos esferas se iba a varios segundos.
+    const stack: number[] = [0];
+    while (stack.length > 0) {
+      const idx = stack.pop()!;
+      const node = this.bvh[idx];
+      if (!node || !rayHitsBox(origin, inv, node)) continue;
+      if (node.count > 0) {
+        for (let i = node.start; i < node.start + node.count; i++) {
+          const h = rayTriangle(origin, dir, this.tris[i]);
+          if (!h) continue;
+          if (h.t <= 0) continue;
+          if (!force) {
+            const w = 1 - h.u - h.v;
+            if (h.u < 1e-9 || h.v < 1e-9 || w < 1e-9) return null;
+          }
+          count++;
+        }
+      } else {
+        stack.push(node.left, node.right);
       }
-      count++;
     }
     return (count & 1) === 1;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Árbol de cajas envolventes
+// ---------------------------------------------------------------------------
+
+interface BvhNode {
+  minX: number; minY: number; minZ: number;
+  maxX: number; maxY: number; maxZ: number;
+  /** Primer triángulo de la hoja. */
+  start: number;
+  /** Número de triángulos: 0 en los nodos interiores. */
+  count: number;
+  left: number;
+  right: number;
+}
+
+const BVH_LEAF = 8;
+
+/**
+ * Construye el árbol partiendo por la mediana del eje más largo. Reordena
+ * `tris` in situ para que cada hoja sea un tramo contiguo.
+ */
+function buildBvh(tris: Tri[]): BvhNode[] {
+  const nodes: BvhNode[] = [];
+  if (tris.length === 0) return nodes;
+
+  const centroid = (t: Tri, axis: 0 | 1 | 2): number => {
+    if (axis === 0) return (t.a.x + t.b.x + t.c.x) / 3;
+    if (axis === 1) return (t.a.y + t.b.y + t.c.y) / 3;
+    return (t.a.z + t.b.z + t.c.z) / 3;
+  };
+
+  const build = (start: number, count: number): number => {
+    const node: BvhNode = {
+      minX: Infinity, minY: Infinity, minZ: Infinity,
+      maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity,
+      start, count, left: -1, right: -1,
+    };
+    for (let i = start; i < start + count; i++) {
+      for (const p of [tris[i].a, tris[i].b, tris[i].c]) {
+        if (p.x < node.minX) node.minX = p.x;
+        if (p.y < node.minY) node.minY = p.y;
+        if (p.z < node.minZ) node.minZ = p.z;
+        if (p.x > node.maxX) node.maxX = p.x;
+        if (p.y > node.maxY) node.maxY = p.y;
+        if (p.z > node.maxZ) node.maxZ = p.z;
+      }
+    }
+    const index = nodes.length;
+    nodes.push(node);
+    if (count <= BVH_LEAF) return index;
+
+    const dx = node.maxX - node.minX;
+    const dy = node.maxY - node.minY;
+    const dz = node.maxZ - node.minZ;
+    const axis: 0 | 1 | 2 = dx >= dy && dx >= dz ? 0 : dy >= dz ? 1 : 2;
+    const slice = tris.slice(start, start + count).sort((p, q) => centroid(p, axis) - centroid(q, axis));
+    for (let i = 0; i < count; i++) tris[start + i] = slice[i];
+
+    const half = count >> 1;
+    node.count = 0;
+    node.left = build(start, half);
+    node.right = build(start + half, count - half);
+    return index;
+  };
+
+  build(0, tris.length);
+  return nodes;
+}
+
+/** Prueba rayo-caja por rebanadas, con el rayo de longitud infinita. */
+function rayHitsBox(origin: Vec3, inv: Vec3, b: BvhNode): boolean {
+  let tmin = -Infinity;
+  let tmax = Infinity;
+
+  const slab = (o: number, i: number, lo: number, hi: number): boolean => {
+    if (!Number.isFinite(i)) return o >= lo && o <= hi;
+    let t0 = (lo - o) * i;
+    let t1 = (hi - o) * i;
+    if (t0 > t1) {
+      const tmp = t0;
+      t0 = t1;
+      t1 = tmp;
+    }
+    if (t0 > tmin) tmin = t0;
+    if (t1 < tmax) tmax = t1;
+    return tmax >= tmin;
+  };
+
+  if (!slab(origin.x, inv.x, b.minX, b.maxX)) return false;
+  if (!slab(origin.y, inv.y, b.minY, b.maxY)) return false;
+  if (!slab(origin.z, inv.z, b.minZ, b.maxZ)) return false;
+  return tmax >= 0;
 }
 
 /** Möller–Trumbore con coordenadas baricéntricas, para medir la degeneración. */
@@ -245,12 +356,20 @@ export function booleanSolids(
     return { ok: false, message: 'La segunda pieza no es un sólido cerrado.', faces: [], solid: false };
   }
 
-  // Caja común: fija el paso de muestreo y acota la limpieza posterior.
-  let box = emptyBox();
-  for (const fid of [...A, ...B]) {
-    for (const v of geo.faceVertices(fid)) box = expandBox(box, geo.vertexPos(v));
-  }
-  const step = Math.min(1e-4, Math.max(1e-9, boxDiagonal(box) * 1e-5));
+  // Cajas de cada pieza y caja común. La común acota qué caras se clasifican y
+  // hasta dónde llega la limpieza; el solape de las dos, dónde puede haber
+  // costuras que quitar.
+  const boxA = facesBox(geo, A);
+  const boxB = facesBox(geo, B);
+  const box = unionBox(boxA, boxB);
+  const overlap = intersectBox(boxA, boxB);
+
+  // Paso de muestreo: sólo tiene que separar el punto del plano de su cara sin
+  // perder precisión. Cualquier valor mayor se comería los rasgos más finos
+  // que él —una ranura de 40 µm desaparecía— así que se fija justo por encima
+  // de la resolución de los números, muy por debajo de la tolerancia de
+  // soldadura del modelo (1 µm).
+  const step = Math.max(1e-15, boxDiagonal(box) * 1e-12);
 
   const planes: Plane[] = [...planesOfFaces(geo, A), ...planesOfFaces(geo, B)];
   const planeKeys = new Set(planes.map((p) => planeKey(planeCanonical(p))));
@@ -267,10 +386,11 @@ export function booleanSolids(
       if (!planeKeys.has(planeKey(planeCanonical(f.plane)))) continue;
 
       const p = interiorSample(geo, fid);
-      if (!p) {
-        drop.push(fid);
-        continue;
-      }
+      if (!p) continue;
+      // Compartir plano no basta: el suelo de una casa a cincuenta metros
+      // también está en z = 0. Sólo entra en la operación lo que además cae
+      // dentro de la caja de las dos piezas.
+      if (!pointInBox(p, box, step * 10)) continue;
       const above = addScaled(p, f.plane.n, step);
       const below = addScaled(p, f.plane.n, -step);
       const inAbove = memberOf(op, memA.contains(above), memB.contains(above));
@@ -285,7 +405,7 @@ export function booleanSolids(
       keep.push(fid);
     }
     for (const fid of drop) geo.removeFace(fid);
-    cleanDangling(geo, box, step);
+    cleanDangling(geo, box, planeKeys);
     return keep;
   };
 
@@ -297,7 +417,7 @@ export function booleanSolids(
   // quedarse ahí. Al quitarla se reconstruye el plano y se vuelve a clasificar,
   // porque reconstruir puede resucitar regiones que la operación había
   // descartado (el fondo de un rebaje, por ejemplo).
-  const merged = removeCoplanarSeams(geo, keep);
+  const merged = removeCoplanarSeams(geo, keep, overlap, step);
   if (merged.length > 0) {
     const fresh = new Set<Id>();
     for (const plane of merged) {
@@ -310,24 +430,61 @@ export function booleanSolids(
   orientFacesConsistently(geo, keep);
 
   const alive = keep.filter((f) => geo.faces.has(f));
+  // Quedarse sin caras no es un fallo: intersecar dos piezas separadas da el
+  // vacío, y eso es la respuesta correcta.
   return {
-    ok: alive.length > 0,
+    ok: true,
     message: alive.length > 0 ? '' : 'La operación no deja ninguna cara.',
     faces: alive,
     solid: isSolid(geo, alive),
   };
 }
 
+/** Caja envolvente de un conjunto de caras. */
+function facesBox(geo: Geometry, faces: Iterable<Id>): Box3 {
+  const box = emptyBox();
+  for (const fid of faces) {
+    for (const v of geo.faceVertices(fid)) expandBox(box, geo.vertexPos(v));
+  }
+  return box;
+}
+
+/** Solape de dos cajas; vacía si no se tocan. */
+function intersectBox(a: Box3, b: Box3): Box3 {
+  if (boxIsEmpty(a) || boxIsEmpty(b)) return emptyBox();
+  return {
+    min: v3(Math.max(a.min.x, b.min.x), Math.max(a.min.y, b.min.y), Math.max(a.min.z, b.min.z)),
+    max: v3(Math.min(a.max.x, b.max.x), Math.min(a.max.y, b.max.y), Math.min(a.max.z, b.max.z)),
+  };
+}
+
+function pointInBox(p: Vec3, b: Box3, margin: number): boolean {
+  if (boxIsEmpty(b)) return false;
+  return p.x >= b.min.x - margin && p.x <= b.max.x + margin
+    && p.y >= b.min.y - margin && p.y <= b.max.y + margin
+    && p.z >= b.min.z - margin && p.z <= b.max.z + margin;
+}
+
 /**
  * Quita las aristas que separan dos caras coplanares con la misma orientación:
- * son costuras dejadas por la operación, no aristas del modelo. Devuelve los
- * planos afectados para reconstruirlos.
+ * son costuras dejadas por la operación, no aristas del modelo.
+ *
+ * Sólo se tocan las que caen en la zona donde las dos piezas se solapan. Fuera
+ * de ahí, una arista entre caras coplanares es una línea que dibujó el usuario
+ * para dividir una cara, y borrarla sería deshacerle el trabajo.
  */
-function removeCoplanarSeams(geo: Geometry, faces: Iterable<Id>): Plane[] {
+function removeCoplanarSeams(
+  geo: Geometry,
+  faces: Iterable<Id>,
+  overlap: Box3,
+  margin: number,
+): Plane[] {
+  if (boxIsEmpty(overlap)) return [];
   const faceSet = new Set([...faces].filter((f) => geo.faces.has(f)));
   const victims: Id[] = [];
   const planes: Plane[] = [];
   const seen = new Set<Id>();
+  const m = Math.max(margin, EPS) * 10;
 
   for (const fid of faceSet) {
     for (const eid of geo.faceEdges(fid)) {
@@ -342,8 +499,10 @@ function removeCoplanarSeams(geo: Geometry, faces: Iterable<Id>): Plane[] {
       // Orientadas igual: si miraran a lados opuestos no serían la misma
       // superficie, sino una lámina de grosor nulo.
       if (!planeEquals(f1.plane, f2.plane, true)) continue;
+      const [p, q] = geo.edgeEndpoints(eid);
+      if (!pointInBox(p, overlap, m) || !pointInBox(q, overlap, m)) continue;
       victims.push(eid);
-      if (!planes.some((p) => planeEquals(p, f1.plane, false))) planes.push(f1.plane);
+      if (!planes.some((pl) => planeEquals(pl, f1.plane, false))) planes.push(f1.plane);
     }
   }
 
@@ -351,13 +510,16 @@ function removeCoplanarSeams(geo: Geometry, faces: Iterable<Id>): Plane[] {
   return planes;
 }
 
-/** Retira aristas y vértices que se han quedado sin cara dentro de la zona. */
-function cleanDangling(geo: Geometry, box: Box3, margin: number): void {
+/**
+ * Retira aristas y vértices que se han quedado sin cara.
+ *
+ * Se limita a las aristas que están EN uno de los planos de la operación y
+ * dentro de su caja: una línea de construcción que el usuario dejó cruzando la
+ * zona no es un resto de la booleana y tiene que seguir ahí.
+ */
+function cleanDangling(geo: Geometry, box: Box3, planeKeys: ReadonlySet<string>): void {
   if (boxIsEmpty(box)) return;
-  const m = Math.max(margin, EPS) * 10;
-  const inside = (p: Vec3) => p.x >= box.min.x - m && p.x <= box.max.x + m
-    && p.y >= box.min.y - m && p.y <= box.max.y + m
-    && p.z >= box.min.z - m && p.z <= box.max.z + m;
+  const m = EPS * 10;
 
   for (const e of [...geo.edges.values()]) {
     const users = geo.edgeFaces.get(e.id);
@@ -365,13 +527,36 @@ function cleanDangling(geo: Geometry, box: Box3, margin: number): void {
     const a = geo.vertices.get(e.a);
     const b = geo.vertices.get(e.b);
     if (!a || !b) continue;
-    if (!inside(a.p) || !inside(b.p)) continue;
+    if (!pointInBox(a.p, box, m) || !pointInBox(b.p, box, m)) continue;
+    if (!edgeOnAnyPlane(a.p, b.p, planeKeys)) continue;
     geo.removeEdge(e.id);
   }
   for (const v of [...geo.vertices.values()]) {
-    if (!inside(v.p)) continue;
+    if (!pointInBox(v.p, box, m)) continue;
     geo.removeVertexIfIsolated(v.id);
   }
+}
+
+/**
+ * ¿Está la arista contenida en alguno de los planos de la operación? Se
+ * compara por la clave del plano, igual que hace la clasificación de caras.
+ */
+function edgeOnAnyPlane(a: Vec3, b: Vec3, planeKeys: ReadonlySet<string>): boolean {
+  for (const key of planeKeys) {
+    const pl = planeFromKey(key);
+    if (!pl) continue;
+    if (Math.abs(dot(pl.n, a) - pl.d) <= EPS && Math.abs(dot(pl.n, b) - pl.d) <= EPS) return true;
+  }
+  return false;
+}
+
+function planeFromKey(key: string): Plane | null {
+  const parts = key.split('|');
+  if (parts.length !== 4) return null;
+  const n = v3(Number(parts[0]), Number(parts[1]), Number(parts[2]));
+  const d = Number(parts[3]);
+  if (!Number.isFinite(d) || lengthSq(n) <= 0) return null;
+  return { n, d };
 }
 
 // ---------------------------------------------------------------------------

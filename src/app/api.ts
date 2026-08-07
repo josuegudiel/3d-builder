@@ -283,11 +283,13 @@ export class Form3DApi {
       axisAngle: toDegrees(j.axisAngle),
       gap: j.gap,
       sameFacePlane: j.sameFacePlane,
-      cuts: j.cuts.map((c) => ({
+      // null en la pieza que no se corta (la que pasa de largo en una te, y
+      // las dos en un cruce).
+      cuts: j.cuts.map((c) => (c === null ? null : {
         miter: toDegrees(Math.abs(c.miter)),
         bevel: toDegrees(Math.abs(c.bevel)),
         toAxis: toDegrees(c.toAxis),
-        atEnd: c.end !== null,
+        style: c.style,
       })),
     };
   }
@@ -304,8 +306,8 @@ export class Form3DApi {
     return m ? describeMember(m, this.editor.units) : null;
   }
 
-  /** Coloca una cota angular permanente. */
-  angleDimension(vertex: Vec3, a: Vec3, b: Vec3, radius = 0): Id {
+  /** Coloca una cota angular permanente. Devuelve null si el ángulo es nulo. */
+  angleDimension(vertex: Vec3, a: Vec3, b: Vec3, radius = 0): Id | null {
     return this.run('Cota angular', () =>
       this.model.addAngleDimension(vertex, a, b, radius));
   }

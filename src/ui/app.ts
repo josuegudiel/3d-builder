@@ -141,6 +141,9 @@ export class AppUI {
         { sep: true },
         { label: 'Invertir caras', action: () => this.doFlipFaces() },
         { label: 'Orientar caras del sólido', action: () => this.doOrient() },
+        { sep: true },
+        { label: 'Eliminar cotas', action: () => this.doClearDimensions() },
+        { label: 'Eliminar guías', action: () => this.doClearGuides() },
       ]),
       this.buildMenu('Insertar', SOLIDS.map((def) => ({
         label: def.label,
@@ -746,6 +749,29 @@ export class AppUI {
     });
   }
 
+  /** Borra todas las cotas: son anotaciones, no geometría, y Supr no las toca. */
+  private doClearDimensions(): void {
+    const model = this.editor.model;
+    const n = model.dimensions.size + model.angleDimensions.size;
+    if (n === 0) {
+      this.editor.setStatus('No hay cotas que eliminar.');
+      return;
+    }
+    this.editor.edit('Eliminar cotas', () => model.clearDimensions());
+    this.editor.setStatus(`Eliminadas ${n} cota(s).`);
+  }
+
+  private doClearGuides(): void {
+    const model = this.editor.model;
+    const n = model.guides.size;
+    if (n === 0) {
+      this.editor.setStatus('No hay guías que eliminar.');
+      return;
+    }
+    this.editor.edit('Eliminar guías', () => model.clearGuides());
+    this.editor.setStatus(`Eliminadas ${n} guía(s).`);
+  }
+
   // -------------------------------------------------------------------------
   // Sólidos
   // -------------------------------------------------------------------------
@@ -764,20 +790,27 @@ export class AppUI {
     const geo = this.editor.geometry;
 
     let result: SolidOpResult | null = null;
-    this.editor.edit(BOOLEAN_LABEL[op], () => {
-      result = booleanInstances(this.editor.model, geo, a, b, op);
-      clearSelection(sel);
-      if (result.ok && result.instanceId !== null) sel.instances.add(result.instanceId);
-    });
-
-    const r = result as SolidOpResult | null;
-    if (!r) return;
-    if (!r.ok) {
-      this.editor.setStatus(`${BOOLEAN_LABEL[op]}: ${r.message}`);
-      this.editor.undo();
+    try {
+      // La operación se hace dentro de `edit`, pero si falla se lanza para que
+      // el paso de historial se DESCARTE. Deshacerlo después habría dejado una
+      // entrada fantasma y, peor, habría borrado la pila de rehacer del
+      // usuario; la pieza no llega a tocarse porque la booleana trabaja sobre
+      // una copia.
+      this.editor.edit(BOOLEAN_LABEL[op], () => {
+        const r = booleanInstances(this.editor.model, geo, a, b, op);
+        result = r;
+        if (!r.ok) throw new Error(r.message);
+        clearSelection(sel);
+        if (r.instanceId !== null) sel.instances.add(r.instanceId);
+      });
+    } catch {
+      const r = result as SolidOpResult | null;
+      this.editor.setStatus(`${BOOLEAN_LABEL[op]}: ${r?.message ?? 'no se ha podido hacer.'}`);
       return;
     }
 
+    const r = result as SolidOpResult | null;
+    if (!r) return;
     const extra = r.solid ? '' : ' El resultado no es un sólido cerrado.';
     this.editor.setStatus(`${BOOLEAN_LABEL[op]}: hecho.${extra}`);
     if (r.joint) this.showJointReport(r.joint, r.members);
@@ -790,19 +823,25 @@ export class AppUI {
   private doIntersectFaces(): void {
     const geo = this.editor.geometry;
     const sel = this.editor.selection;
-    const selected = sel.faces.size > 0 ? [...sel.faces] : [...geo.faces.keys()];
-    if (selected.length === 0) {
-      this.editor.setStatus('No hay caras con las que intersecar.');
+    // Hace falta una selección: cruzar el modelo entero consigo mismo puede
+    // multiplicar por veinte el número de caras y bloquear la aplicación varios
+    // segundos sin que nadie lo haya pedido.
+    if (sel.faces.size === 0) {
+      this.editor.setStatus('Intersecar caras: selecciona antes las caras que quieres cruzar con el resto.');
       return;
     }
-    const others = [...geo.faces.keys()].filter((f) => !selected.includes(f));
-    const target = others.length > 0 ? others : selected;
+    const selected = new Set(sel.faces);
+    const target = [...geo.faces.keys()].filter((f) => !selected.has(f));
+    if (target.length === 0) {
+      this.editor.setStatus('Intersecar caras: no hay más geometría con la que cruzar.');
+      return;
+    }
 
     let created = 0;
     this.editor.edit('Intersecar caras', () => {
       const r = intersectFaceSets(geo, selected, target);
-      created = r.edges.length;
-      if (created > 0) {
+      created = r.created.length;
+      if (r.edges.length > 0) {
         rebuildFaces(geo, collectCandidatePlanes(geo, r.edges), { newEdges: new Set(r.edges) });
       }
     });

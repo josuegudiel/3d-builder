@@ -6,7 +6,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { Model, ContextPath } from '../core/model/model';
 import { Geometry } from '../core/model/geometry';
 import { Id } from '../core/model/types';
-import { Vec3, v3 } from '../core/math/vec';
+import { Vec3, v3, anyPerpendicular } from '../core/math/vec';
 import { Mat4, IDENTITY, matMul, transformPoint, transformNormal, matFlipsOrientation } from '../core/math/mat';
 import { Box3, emptyBox, expandBox } from '../core/math/geom';
 import { triangulateFace } from '../core/topology/triangulate';
@@ -706,18 +706,26 @@ function buildAngleDimensions(model: Model, batch: EdgeBatch, pick: PickCache): 
     const cosA = Math.max(-1, Math.min(1, e1.x * f.x + e1.y * f.y + e1.z * f.z));
     const total = Math.acos(cosA);
 
-    // Segunda dirección de la base, perpendicular a la primera dentro del plano.
-    const perpRaw = { x: f.x - e1.x * cosA, y: f.y - e1.y * cosA, z: f.z - e1.z * cosA };
-    const lp = Math.hypot(perpRaw.x, perpRaw.y, perpRaw.z);
+    // Segunda dirección de la base, perpendicular a la primera dentro del
+    // plano. Con los dos lados alineados (0° o 180°) ese plano no está
+    // determinado: se elige cualquiera perpendicular, o el arco degeneraría en
+    // un segmento sobre los propios lados y la etiqueta caería en el vértice.
+    let perp = { x: f.x - e1.x * cosA, y: f.y - e1.y * cosA, z: f.z - e1.z * cosA };
+    let lp = Math.hypot(perp.x, perp.y, perp.z);
+    if (lp <= 1e-9) {
+      perp = anyPerpendicular(e1);
+      lp = 1;
+    }
+    const e2 = { x: perp.x / lp, y: perp.y / lp, z: perp.z / lp };
     const r = dim.radius;
 
     const at = (t: number) => {
       const c = Math.cos(t);
-      const s = lp > 1e-12 ? Math.sin(t) : 0;
+      const s = Math.sin(t);
       return {
-        x: dim.vertex.x + (e1.x * c + (lp > 1e-12 ? perpRaw.x / lp : 0) * s) * r,
-        y: dim.vertex.y + (e1.y * c + (lp > 1e-12 ? perpRaw.y / lp : 0) * s) * r,
-        z: dim.vertex.z + (e1.z * c + (lp > 1e-12 ? perpRaw.z / lp : 0) * s) * r,
+        x: dim.vertex.x + (e1.x * c + e2.x * s) * r,
+        y: dim.vertex.y + (e1.y * c + e2.y * s) * r,
+        z: dim.vertex.z + (e1.z * c + e2.z * s) * r,
       };
     };
 

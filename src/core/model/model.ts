@@ -169,13 +169,22 @@ export class Model {
    * Añade una cota angular. El radio, si no se indica, se ajusta a la
    * distancia menor de los dos lados para que el arco quepa dentro del ángulo.
    */
-  addAngleDimension(vertex: Vec3, a: Vec3, b: Vec3, radius = 0, text = ''): Id {
-    const id = this.ids.alloc();
+  addAngleDimension(vertex: Vec3, a: Vec3, b: Vec3, radius = 0, text = ''): Id | null {
     const da = Math.hypot(a.x - vertex.x, a.y - vertex.y, a.z - vertex.z);
     const db = Math.hypot(b.x - vertex.x, b.y - vertex.y, b.z - vertex.z);
+    // Sin dos lados no hay ángulo: guardar una cota así dejaría en el modelo
+    // una anotación invisible que nadie podría encontrar para borrarla.
+    if (da <= 1e-9 || db <= 1e-9) return null;
+    const id = this.ids.alloc();
     const r = radius > 0 ? radius : Math.max(1e-6, Math.min(da, db) * 0.4);
     this.angleDimensions.set(id, { id, vertex, a, b, radius: r, text });
     return id;
+  }
+
+  /** Borra todas las cotas, lineales y angulares. */
+  clearDimensions(): void {
+    this.dimensions.clear();
+    this.angleDimensions.clear();
   }
 
   /** Añade una guía de construcción. */

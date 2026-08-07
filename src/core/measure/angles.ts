@@ -4,6 +4,7 @@ import {
 import { Plane } from '../math/plane';
 import { Geometry } from '../model/geometry';
 import { Id } from '../model/types';
+import { isOrientedShell, faceComponent } from '../topology/orient';
 
 /**
  * Sistema de ángulos.
@@ -65,11 +66,11 @@ export function dihedralFromNormals(n1: Vec3, n2: Vec3, d1: Vec3): number {
   return wrapTurn(raw);
 }
 
-/** Lleva un ángulo al intervalo (0, 2π]. */
+/** Lleva un ángulo al intervalo [0, 2π). */
 export function wrapTurn(a: number): number {
   const twoPi = Math.PI * 2;
   let x = a % twoPi;
-  if (x <= 0) x += twoPi;
+  if (x < 0) x += twoPi;
   return x;
 }
 
@@ -91,20 +92,32 @@ export function faceEdgeDirection(geo: Geometry, faceId: Id, edgeId: Id): Vec3 |
 }
 
 export interface DihedralResult {
-  /** Ángulo interior en radianes, (0, 2π). */
+  /** Ángulo en radianes. Interior (0…360°) si hay material; si no, 0…180°. */
   angle: number;
   /** Las dos caras que comparten la arista. */
   faces: [Id, Id];
   /** false si las dos caras recorren la arista en el mismo sentido. */
   consistent: boolean;
+  /**
+   * true si las caras pertenecen a una cáscara cerrada y bien orientada, que
+   * es cuando existe un "dentro" y el ángulo puede pasar de 180°.
+   */
+  solid: boolean;
 }
 
 /**
- * Ángulo diedro interior de una arista compartida por exactamente dos caras.
+ * Ángulo diedro de una arista compartida por exactamente dos caras.
  *
- * Se mide a través del material: el canto de una caja da 90°, dos caras que
- * continúan en el mismo plano dan 180° y un rincón entrante da 270°. Devuelve
- * null si la arista no tiene exactamente dos caras.
+ * Cuando las caras forman parte de un SÓLIDO cerrado se mide a través del
+ * material y la lectura llega hasta 360°: el canto de una caja da 90°, dos
+ * caras que continúan dan 180° y un rincón entrante da 270°.
+ *
+ * Cuando son caras sueltas no hay "dentro" que medir: 90° y 270° describirían
+ * el mismo pliegue, y cuál de los dos sale dependería sólo del sentido en que
+ * se dibujó cada polígono. En ese caso se devuelve el ángulo que no pasa de
+ * 180°, que es el único dato que la geometría respalda.
+ *
+ * Devuelve null si la arista no tiene exactamente dos caras.
  */
 export function dihedralAngle(geo: Geometry, edgeId: Id): DihedralResult | null {
   const users = [...(geo.edgeFaces.get(edgeId) ?? [])];
@@ -119,12 +132,15 @@ export function dihedralAngle(geo: Geometry, edgeId: Id): DihedralResult | null 
   if (!d1 || !d2) return null;
 
   // Dos caras coherentes recorren la arista en sentidos opuestos. Si no lo son,
-  // se calcula como si la segunda estuviera invertida: el ángulo geométrico es
-  // el mismo y así el resultado no depende de cómo esté guardada la cáscara.
+  // se calcula como si la segunda estuviera invertida.
   const consistent = dot(d1, d2) < 0;
   const n2 = consistent ? b.plane.n : mul(b.plane.n, -1);
 
-  return { angle: dihedralFromNormals(a.plane.n, n2, d1), faces: [f1, f2], consistent };
+  let angle = dihedralFromNormals(a.plane.n, n2, d1);
+  const solid = isOrientedShell(geo, faceComponent(geo, f1));
+  if (!solid) angle = Math.min(angle, Math.PI * 2 - angle);
+
+  return { angle, faces: [f1, f2], consistent, solid };
 }
 
 export interface VertexAngle {
@@ -248,8 +264,13 @@ export function cutAngles(cutNormal: Vec3, frame: CutFrame): CutAngles {
   let my = dot(m, y);
   let mz = dot(m, z);
   // Un plano y su opuesto son el mismo plano: se elige el sentido que mira
-  // hacia el extremo de la pieza para que los ajustes queden en ±90°.
-  if (mx < 0) {
+  // hacia el extremo de la pieza para que los ajustes queden en ±90°. Si el
+  // plano es paralelo al eje (mx = 0) hay que desempatar con las otras dos
+  // componentes, o el mismo plano daría ajustes opuestos según cómo se
+  // escribiera su normal.
+  const flip = mx < -1e-12
+    || (Math.abs(mx) <= 1e-12 && (my < -1e-12 || (Math.abs(my) <= 1e-12 && mz < 0)));
+  if (flip) {
     mx = -mx;
     my = -my;
     mz = -mz;

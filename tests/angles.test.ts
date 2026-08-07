@@ -3,8 +3,8 @@ import { newGeometry, expectValid, closeTo } from './helpers';
 import { Geometry } from '../src/core/model/geometry';
 import { Id } from '../src/core/model/types';
 import { Vec3, v3, normalize, rotateAround, add, mul, dot } from '../src/core/math/vec';
-import { addPolygonFace } from '../src/core/ops/solids';
-import { orientFacesConsistently, shellVolume, isSolid } from '../src/core/topology/orient';
+import { addPolygonFace, makeSphere } from '../src/core/ops/solids';
+import { orientFacesConsistently, shellVolume, isSolid, flipFace } from '../src/core/topology/orient';
 import {
   toDegrees, toRadians, lineAngle, linePlaneAngle, planeAngle, dihedralAngle,
   angleBetweenEdges, edgeDirectionAngle, cutAngles, miterPlaneNormal, jointAngle,
@@ -14,7 +14,10 @@ import {
   measureMember, measureShape, analyseJoint, nominalSection, Member, membersTouch,
 } from '../src/core/measure/member';
 import { booleanSolids, booleanInstances, bakeInto } from '../src/core/ops/boolean';
-import { intersectFaceSets } from '../src/core/ops/intersect';
+import { intersectFaceSets, faceLineIntervals } from '../src/core/ops/intersect';
+import { drawSegment } from '../src/core/ops/draw';
+import { faceCentroid } from '../src/core/topology/triangulate';
+import { rebuildFaces, collectPlanesFromFaces } from '../src/core/topology/rebuild';
 import { METERS_PER, DEFAULT_UNITS } from '../src/core/units';
 import { Model } from '../src/core/model/model';
 import { matTranslation, matRotation, IDENTITY } from '../src/core/math/mat';
@@ -123,7 +126,7 @@ describe('ángulos entre direcciones', () => {
   });
 
   it('wrapTurn deja el ángulo en (0, 2π]', () => {
-    closeTo(wrapTurn(0), Math.PI * 2);
+    closeTo(wrapTurn(0), 0);
     closeTo(wrapTurn(-Math.PI / 2), (3 * Math.PI) / 2);
     closeTo(wrapTurn(Math.PI * 3), Math.PI);
   });
@@ -442,9 +445,9 @@ describe('análisis de uniones', () => {
     expect(j.kind).toBe('esquina');
     closeTo(DEG(j.angle), 90, 1e-9);
     closeTo(DEG(j.supplement), 90, 1e-9);
-    closeTo(Math.abs(DEG(j.cuts[0].miter)), 45, 1e-9);
-    closeTo(Math.abs(DEG(j.cuts[1].miter)), 45, 1e-9);
-    closeTo(DEG(j.cuts[0].bevel), 0, 1e-9);
+    closeTo(Math.abs(DEG(j.cuts[0]!.miter)), 45, 1e-9);
+    closeTo(Math.abs(DEG(j.cuts[1]!.miter)), 45, 1e-9);
+    closeTo(DEG(j.cuts[0]!.bevel), 0, 1e-9);
     expect(j.sameFacePlane).toBe(true);
     closeTo(j.gap, 0, 1e-9);
   });
@@ -455,8 +458,8 @@ describe('análisis de uniones', () => {
     const b = member(dir, v3(0, 0, 1), mul(dir, 1), 2);
     const j = analyseJoint(a, b);
     closeTo(DEG(j.angle), 30, 1e-7);
-    closeTo(Math.abs(DEG(j.cuts[0].miter)), 75, 1e-7);
-    closeTo(Math.abs(DEG(j.cuts[1].miter)), 75, 1e-7);
+    closeTo(Math.abs(DEG(j.cuts[0]!.miter)), 75, 1e-7);
+    closeTo(Math.abs(DEG(j.cuts[1]!.miter)), 75, 1e-7);
   });
 
   it('reconoce una unión en te', () => {
@@ -466,8 +469,9 @@ describe('análisis de uniones', () => {
     const j = analyseJoint(a, b);
     expect(j.kind).toBe('te');
     closeTo(DEG(j.angle), 90, 1e-9);
-    expect(j.cuts[0].end).toBeNull();
-    expect(j.cuts[1].end).not.toBeNull();
+    expect(j.cuts[0]).toBeNull();          // la viga pasa de largo: no se corta
+    expect(j.cuts[1]).not.toBeNull();
+    expect(j.cuts[1]!.style).toBe('tope');
   });
 
   it('reconoce un cruce', () => {
@@ -485,7 +489,7 @@ describe('análisis de uniones', () => {
     expect(j.parallel).toBe(true);
     expect(j.kind).toBe('prolongación');
     closeTo(DEG(j.angle), 180, 1e-9);
-    closeTo(DEG(j.cuts[0].miter), 0, 1e-9);
+    closeTo(DEG(j.cuts[0]!.miter), 0, 1e-9);
   });
 
   it('detecta el bisel cuando las caras no están en el mismo plano', () => {
@@ -493,7 +497,7 @@ describe('análisis de uniones', () => {
     const b = member(normalize(v3(0, 1, 1)), normalize(v3(0, -1, 1)), mul(normalize(v3(0, 1, 1)), 1), 2);
     const j = analyseJoint(a, b);
     expect(j.sameFacePlane).toBe(false);
-    expect(Math.abs(DEG(j.cuts[0].bevel))).toBeGreaterThan(0.5);
+    expect(Math.abs(DEG(j.cuts[0]!.bevel))).toBeGreaterThan(0.5);
   });
 
   it('mide la separación entre piezas que no llegan a tocarse', () => {
@@ -513,8 +517,8 @@ describe('análisis de uniones', () => {
     const j = analyseJoint(a, b);
     expect(j.kind).toBe('esquina');
     closeTo(DEG(j.angle), 90, 1e-6);
-    closeTo(Math.abs(DEG(j.cuts[0].miter)), 45, 1e-6);
-    closeTo(Math.abs(DEG(j.cuts[1].miter)), 45, 1e-6);
+    closeTo(Math.abs(DEG(j.cuts[0]!.miter)), 45, 1e-6);
+    closeTo(Math.abs(DEG(j.cuts[1]!.miter)), 45, 1e-6);
   });
 });
 
@@ -731,8 +735,8 @@ describe('booleanas entre grupos', () => {
     const j = booleanInstances(model, model.rootGeometry, a, b, 'union').joint;
     expect(j).not.toBeNull();
     closeTo(DEG(j!.angle), 120, 1e-6);
-    closeTo(Math.abs(DEG(j!.cuts[0].miter)), 30, 1e-6);
-    closeTo(Math.abs(DEG(j!.cuts[1].miter)), 30, 1e-6);
+    closeTo(Math.abs(DEG(j!.cuts[0]!.miter)), 30, 1e-6);
+    closeTo(Math.abs(DEG(j!.cuts[1]!.miter)), 30, 1e-6);
   });
 
   it('rechaza operar sobre un solo grupo', () => {
@@ -782,8 +786,9 @@ describe('cotas angulares', () => {
   it('se guardan y se recuperan del archivo', () => {
     const model = new Model();
     const id = model.addAngleDimension(v3(0, 0, 0), v3(1, 0, 0), v3(0, 1, 0));
+    expect(id).not.toBeNull();
     const back = deserializeModel(serializeToJSON(model));
-    const dim = back.angleDimensions.get(id);
+    const dim = back.angleDimensions.get(id!);
     expect(dim).toBeDefined();
     closeTo(dim!.a.x, 1, 1e-12);
     closeTo(dim!.b.y, 1, 1e-12);
@@ -793,7 +798,7 @@ describe('cotas angulares', () => {
   it('el radio por defecto cabe dentro del ángulo', () => {
     const model = new Model();
     const id = model.addAngleDimension(v3(0, 0, 0), v3(2, 0, 0), v3(0, 0.5, 0));
-    const dim = model.angleDimensions.get(id)!;
+    const dim = model.angleDimensions.get(id!)!;
     expect(dim.radius).toBeGreaterThan(0);
     expect(dim.radius).toBeLessThanOrEqual(0.5);
   });
@@ -842,5 +847,317 @@ describe('textos de las medidas', () => {
     const b = member(dir, normalize(v3(0, -0.5, 0.8)), mul(dir, 1), 2);
     const text = describeJoint(analyseJoint(a, b), DEFAULT_UNITS);
     expect(text).toContain('bisel');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regresiones de la revisión adversaria
+// ---------------------------------------------------------------------------
+
+describe('regresiones del sistema de ángulos', () => {
+  it('el diedro de dos caras sueltas no depende de cómo se dibujaran', () => {
+    // El mismo rincón físico de 90°, con los cuatro sentidos de dibujo.
+    const suelo = [v3(0, 0, 0), v3(0, 1, 0), v3(1, 1, 0), v3(1, 0, 0)];
+    const pared = [v3(0, 0, 0), v3(0, 1, 0), v3(0, 1, 1), v3(0, 0, 1)];
+    for (const a of [suelo, [...suelo].reverse()]) {
+      for (const b of [pared, [...pared].reverse()]) {
+        const geo = newGeometry();
+        addPolygonFace(geo, a);
+        addPolygonFace(geo, b);
+        const e = geo.findEdge(geo.findVertexAt(v3(0, 0, 0))!, geo.findVertexAt(v3(0, 1, 0))!)!;
+        const d = dihedralAngle(geo, e)!;
+        expect(d.solid).toBe(false);
+        closeTo(DEG(d.angle), 90, 1e-9);
+      }
+    }
+  });
+
+  it('invertir una cara de una caja no cambia sus diedros', () => {
+    const geo = newGeometry();
+    const faces = box(geo, v3(0, 0, 0), v3(1, 1, 1));
+    flipFace(geo, faces[0]);
+    for (const e of geo.edges.keys()) {
+      closeTo(DEG(dihedralAngle(geo, e)!.angle), 90, 1e-9);
+    }
+  });
+
+  it('un sólido de verdad sí llega a 270°', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(2, 1, 1));
+    const b = box(geo, v3(0, 1, 0), v3(1, 2, 1));
+    booleanSolids(geo, a, b, 'union');
+    const e = [...geo.edges.keys()].find((id) => {
+      const [p, q] = geo.edgeEndpoints(id);
+      return Math.abs(p.x - 1) < 1e-9 && Math.abs(p.y - 1) < 1e-9
+        && Math.abs(q.x - 1) < 1e-9 && Math.abs(q.y - 1) < 1e-9;
+    })!;
+    const d = dihedralAngle(geo, e)!;
+    expect(d.solid).toBe(true);
+    closeTo(DEG(d.angle), 270, 1e-6);
+  });
+
+  it('un diedro nulo se informa como 0°, no como 360°', () => {
+    closeTo(DEG(wrapTurn(0)), 0);
+    closeTo(DEG(wrapTurn(Math.PI * 2)), 0);
+  });
+
+  it('el texto anuncia el bisel aunque el inglete sea nulo', () => {
+    // Caras anchas en planos perpendiculares: bisel puro en una de las piezas.
+    const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(1, 0, 0), 2);
+    const b = member(v3(0, 1, 0), v3(1, 0, 0), v3(0, 1, 0), 2);
+    const j = analyseJoint(a, b);
+    const bevels = j.cuts.map((c) => Math.abs(DEG(c!.bevel)));
+    expect(Math.max(...bevels)).toBeGreaterThan(1);
+    expect(describeJoint(j, DEFAULT_UNITS)).toContain('bisel');
+  });
+
+  it('una tabla dibujada como una sola cara girada da su largo y su ancho', () => {
+    for (const deg of [0, 15, 30, 45, 63]) {
+      const geo = newGeometry();
+      const r = (p: Vec3) => rotateAround(p, v3(0, 0, 1), toRadians(deg));
+      const f = addPolygonFace(geo, [
+        v3(0, 0, 0), v3(2, 0, 0), v3(2, 0.1, 0), v3(0, 0.1, 0),
+      ].map(r))!;
+      const m = measureMember(geo, [f])!;
+      closeTo(m.length, 2, 1e-9);
+      closeTo(m.width, 0.1, 1e-9);
+      closeTo(DEG(lineAngle(m.axis, r(v3(1, 0, 0)))), 0, 1e-7);
+    }
+  });
+
+  it('una nube de puntos sin caras encuentra el eje de la pieza', () => {
+    const ang = toRadians(37);
+    const r = (p: Vec3) => rotateAround(p, v3(0, 0, 1), ang);
+    const pts: Vec3[] = [];
+    for (const x of [0, 2]) {
+      for (const y of [0, 0.09]) {
+        for (const z of [0, 0.04]) pts.push(r(v3(x, y, z)));
+      }
+    }
+    const m = measureShape({ points: pts, normals: [] })!;
+    closeTo(m.length, 2, 1e-9);
+    closeTo(m.width, 0.09, 1e-9);
+    closeTo(m.thickness, 0.04, 1e-9);
+    closeTo(DEG(lineAngle(m.axis, r(v3(1, 0, 0)))), 0, 1e-7);
+  });
+
+  it('una nube alineada en una recta mide su longitud', () => {
+    const m = measureShape({
+      points: [v3(0, 0, 0), v3(1, 1, 1), v3(2, 2, 2)],
+      normals: [],
+    })!;
+    closeTo(m.length, Math.sqrt(12), 1e-9);
+    closeTo(m.width, 0, 1e-9);
+    closeTo(m.thickness, 0, 1e-9);
+  });
+
+  it('el ángulo de una te no cambia según en qué mitad caiga el nudo', () => {
+    const dir = rotateAround(v3(1, 0, 0), v3(0, 0, 1), toRadians(60));
+    const lecturas = [-1, 1].map((xc) => {
+      const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(0, 0, 0), 4);
+      const b = member(dir, v3(0, 0, 1), add(v3(xc, 0, 0), mul(dir, 1)), 2);
+      const j = analyseJoint(a, b);
+      return { kind: j.kind, angle: DEG(j.angle), miter: DEG(Math.abs(j.cuts[1]!.miter)) };
+    });
+    expect(lecturas[0].kind).toBe('te');
+    expect(lecturas[1].kind).toBe('te');
+    closeTo(lecturas[0].angle, lecturas[1].angle, 1e-9);
+    closeTo(lecturas[0].miter, lecturas[1].miter, 1e-9);
+    closeTo(lecturas[0].angle, 60, 1e-7);
+  });
+
+  it('en un cruce no se inventa ningún corte', () => {
+    const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(0, 0, 0), 4);
+    const b = member(v3(0, 1, 0), v3(0, 0, 1), v3(0, 0, 0), 4);
+    const j = analyseJoint(a, b);
+    expect(j.kind).toBe('cruce');
+    expect(j.cuts[0]).toBeNull();
+    expect(j.cuts[1]).toBeNull();
+    expect(describeJoint(j, DEFAULT_UNITS)).toContain('no hay corte');
+  });
+
+  it('la tolerancia de las testas no crece con el largo de la pieza', () => {
+    // Una tornapunta que llega a 20 cm del extremo de una viga de 10 m es una
+    // unión en te, no un remate.
+    const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(0, 0, 0), 10);
+    const b = member(v3(0, 1, 0), v3(0, 0, 1), v3(4.8, 1, 0), 2);
+    expect(analyseJoint(a, b).kind).toBe('te');
+  });
+
+  it('en una pieza muy corta no es testa cualquier punto', () => {
+    const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(0, 0, 0), 0.05);
+    const b = member(v3(0, 1, 0), v3(0, 0, 1), v3(0, 1, 0), 2);
+    // El nudo cae en el centro de la pieza corta: no es un remate suyo.
+    expect(analyseJoint(a, b).kind).toBe('te');
+  });
+
+  it('dos piezas paralelas lado a lado no son una prolongación', () => {
+    const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(0, 0, 0), 2);
+    const b = member(v3(1, 0, 0), v3(0, 0, 1), v3(0, 0.1, 0), 2);
+    const j = analyseJoint(a, b);
+    expect(j.parallel).toBe(true);
+    expect(j.kind).toBe('suelto');
+    expect(j.cuts[0]).toBeNull();
+  });
+
+  it('una desviación de una milésima de radián sigue siendo paralelo', () => {
+    const dir = rotateAround(v3(1, 0, 0), v3(0, 0, 1), 1e-3);
+    const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(0, 0, 0), 2);
+    const b = member(dir, v3(0, 0, 1), v3(0, 0.1, 0), 2);
+    expect(analyseJoint(a, b).parallel).toBe(true);
+  });
+
+  it('un poste de sección cuadrada se corta a inglete, no a bisel', () => {
+    const geo = newGeometry();
+    const fa = box(geo, v3(0, 0, 0), v3(2, 0.089, 0.089));
+    const fb = box(geo, v3(0, 0, 0), v3(0.089, 2, 0.089));
+    const j = analyseJoint(measureMember(geo, fa)!, measureMember(geo, fb)!);
+    expect(j.kind).toBe('esquina');
+    closeTo(Math.abs(DEG(j.cuts[0]!.miter)), 45, 1e-6);
+    closeTo(Math.abs(DEG(j.cuts[0]!.bevel)), 0, 1e-6);
+    expect(describeJoint(j, DEFAULT_UNITS)).toContain('inglete 45');
+  });
+
+  it('el mismo plano de corte da los mismos ajustes se escriba como se escriba', () => {
+    const frame = { axis: v3(1, 0, 0), faceNormal: v3(0, 0, 1) };
+    for (const n of [v3(0, 0, 1), v3(0, 1, 0), v3(0, 1, 1)]) {
+      const a = cutAngles(n, frame);
+      const b = cutAngles(mul(n, -1), frame);
+      closeTo(a.miter, b.miter, 1e-12);
+      closeTo(a.bevel, b.bevel, 1e-12);
+    }
+  });
+
+  it('dos tablas en planos paralelos distintos no están en el mismo plano', () => {
+    const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(1, 0, 0), 2);
+    const b = member(v3(0, 1, 0), v3(0, 0, 1), v3(0, 1, 0.5), 2);
+    expect(analyseJoint(a, b).sameFacePlane).toBe(false);
+  });
+
+  it('un cubo no se llama 4×4', () => {
+    const geo = newGeometry();
+    const faces = box(geo, v3(0, 0, 0), v3(0.089, 0.089, 0.089));
+    const m = measureMember(geo, faces)!;
+    expect(describeMember(m, DEFAULT_UNITS)).not.toContain('4×4');
+  });
+});
+
+describe('regresiones de las booleanas', () => {
+  it('una ranura más fina que el muestreo sigue restándose bien', () => {
+    for (const t of [4e-5, 2e-5, 5e-6]) {
+      const geo = newGeometry();
+      const a = box(geo, v3(0, 0, 0), v3(1, 1, 1));
+      const b = box(geo, v3(-1, -1, 0.5), v3(2, 2, 0.5 + t));
+      const r = booleanSolids(geo, a, b, 'subtract');
+      expect(r.ok).toBe(true);
+      expect(r.faces.length).toBe(12);
+      expect(r.solid).toBe(true);
+      closeTo(Math.abs(shellVolume(geo, r.faces)), 1 - t, 1e-12);
+    }
+  });
+
+  it('un rasgo diminuto dentro de un modelo enorme no se pierde', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(100, 100, 100));
+    const b = box(geo, v3(10, 10, 100 - 1e-4), v3(10.001, 10.001, 200));
+    const r = booleanSolids(geo, a, b, 'subtract');
+    expect(r.ok).toBe(true);
+    closeTo(Math.abs(shellVolume(geo, r.faces)), 1e6 - 0.001 * 0.001 * 1e-4, 1e-6);
+  });
+
+  it('no toca una cara ajena que sólo comparte plano', () => {
+    for (const lejos of [50, 1000]) {
+      const geo = newGeometry();
+      const a = box(geo, v3(0, 0, 0), v3(1, 1, 1));
+      const b = box(geo, v3(0.5, 0.5, 0.5), v3(1.5, 1.5, 1.5));
+      const c = box(geo, v3(lejos, 0, 0), v3(lejos + 1, 1, 1));
+      booleanSolids(geo, a, b, 'union');
+      expect(c.filter((f) => geo.faces.has(f)).length).toBe(6);
+      closeTo(Math.abs(shellVolume(geo, c)), 1, 1e-9);
+    }
+  });
+
+  it('no borra una línea de construcción que cruza la zona', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(1, 1, 1));
+    const b = box(geo, v3(0.5, 0.5, 0.5), v3(1.5, 1.5, 1.5));
+    drawSegment(geo, v3(0.2, 0.2, 1.3), v3(0.8, 0.8, 1.4));
+    const antes = geo.edges.size;
+    booleanSolids(geo, a, b, 'union');
+    expect(geo.findVertexAt(v3(0.2, 0.2, 1.3))).not.toBeNull();
+    expect(geo.findVertexAt(v3(0.8, 0.8, 1.4))).not.toBeNull();
+    expect(antes).toBeGreaterThan(0);
+  });
+
+  it('no borra una línea que el usuario dibujó sobre una cara', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(2, 2, 1));
+    // Partir la cara superior en dos.
+    drawSegment(geo, v3(0, 1, 1), v3(2, 1, 1));
+    rebuildFaces(geo, collectPlanesFromFaces(geo, a), {});
+    // Sólo la tapa de la primera caja: la segunda también tiene una en z = 1.
+    const enTapa = () => [...geo.faces.keys()].filter((f) => {
+      const pl = geo.faces.get(f)!.plane;
+      if (Math.abs(pl.d - 1) > 1e-9 || Math.abs(pl.n.z) < 0.9) return false;
+      const c = faceCentroid(geo, f);
+      return c !== null && c.x < 2.5;
+    }).length;
+    expect(enTapa()).toBe(2);
+
+    const b = box(geo, v3(3, 3, 0), v3(4, 4, 1));
+    booleanSolids(geo, [...geo.faces.keys()].filter((f) => !b.includes(f)), b, 'union');
+    expect(enTapa()).toBe(2); // la línea del usuario sigue ahí
+  });
+
+  it('intersecar dos piezas separadas es un resultado válido, no un fallo', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(1, 1, 1));
+    const b = box(geo, v3(3, 3, 3), v3(4, 4, 4));
+    const r = booleanSolids(geo, a, b, 'intersect');
+    expect(r.ok).toBe(true);
+    expect(r.faces.length).toBe(0);
+    expect(r.message).toContain('ninguna cara');
+  });
+
+  it('el fondo de una muesca colineal con la recta de corte no se pierde', () => {
+    const geo = newGeometry();
+    // Pieza en U, con el fondo de la muesca en y = 1.
+    addPolygonFace(geo, [
+      v3(0, 0, 0), v3(3, 0, 0), v3(3, 3, 0), v3(2, 3, 0),
+      v3(2, 1, 0), v3(1, 1, 0), v3(1, 3, 0), v3(0, 3, 0),
+    ]);
+    const f = [...geo.faces.keys()][0];
+    const total = faceLineIntervals(geo, f, v3(0, 1, 0), v3(1, 0, 0))
+      .reduce((acc, [t0, t1]) => acc + (t1 - t0), 0);
+    closeTo(total, 3, 1e-9);
+  });
+
+  it('unir dos esferas termina en un tiempo razonable', () => {
+    const geo = newGeometry();
+    const a = makeSphere(geo, 1, 32, 16).faces;
+    const geoB = newGeometry();
+    makeSphere(geoB, 1, 32, 16);
+    const b: Id[] = [];
+    for (const f of geoB.faces.keys()) {
+      const pts = geoB.loopPoints(f, 0).map((p) => v3(p.x + 1, p.y, p.z));
+      const id = addPolygonFace(geo, pts);
+      if (id !== null) b.push(id);
+    }
+    orientFacesConsistently(geo, b);
+
+    const t0 = Date.now();
+    const r = booleanSolids(geo, a, b, 'union');
+    const ms = Date.now() - t0;
+    expect(r.ok).toBe(true);
+    expect(ms).toBeLessThan(2000);
+  });
+
+  it('intersecar caras distingue las aristas nuevas de las repasadas', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(1, 1, 1));
+    // Cruzarla consigo misma no crea nada.
+    const r = intersectFaceSets(geo, a, a);
+    expect(r.created.length).toBe(0);
+    expect(geo.edges.size).toBe(12);
   });
 });

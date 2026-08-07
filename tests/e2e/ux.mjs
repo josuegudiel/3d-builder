@@ -120,6 +120,59 @@ await page.waitForTimeout(300);
 const despues = await page.evaluate(()=>[...window.form3d.editor.geometry.edges.values()].filter(e=>e.soft).length);
 check('explotar conserva las aristas suaves', despues >= antes*0.9, `${antes} → ${despues}`);
 
+// 8. Las aristas del fondo de una cara se pueden señalar
+await page.evaluate(()=>{
+  const app = window.form3d;
+  app.editor.replaceModel(new (app.editor.model.constructor)());
+  app.api.rectangle(0, 0, 2, 1.5);
+  app.api.zoomExtents();
+});
+await page.waitForTimeout(300);
+const midpuntos = await page.evaluate(()=>{
+  const app=window.form3d, g=app.editor.geometry;
+  return [...g.edges.keys()].map(e=>{ const [p,q]=g.edgeEndpoints(e);
+    const m={x:(p.x+q.x)/2,y:(p.y+q.y)/2,z:(p.z+q.z)/2}; const s=app.viewport.worldToScreen(m);
+    return {e, x:s.x, y:s.y}; });
+});
+const señaladas = [];
+for (const {e,x,y} of midpuntos) {
+  await page.mouse.move(box.x+x, box.y+y); await page.waitForTimeout(90);
+  const h = await page.evaluate(()=>window.form3d.editor.tool?.hovered ?? null);
+  señaladas.push(h && h.kind==='edge' && h.id===e);
+}
+check('las cuatro aristas de una cara se pueden señalar',
+  señaladas.length===4 && señaladas.every(Boolean), JSON.stringify(señaladas));
+
+// 9. Pero una arista tapada por un sólido sigue sin poder señalarse
+await page.evaluate(()=>{
+  const app = window.form3d;
+  app.editor.replaceModel(new (app.editor.model.constructor)());
+  app.api.solid('box', { width: 1, depth: 1, height: 1 });
+  app.api.zoomExtents();
+});
+await page.waitForTimeout(300);
+const tapada = await page.evaluate(()=>{
+  const app=window.form3d;
+  const inst=[...app.editor.geometry.instances.values()][0];
+  const def=app.editor.model.definitions.get(inst.definitionId);
+  const g=def.geometry;
+  // La arista más lejana a la cámara.
+  const fwd=app.viewport.cameraCtl.forward;
+  let best=null, bestD=-Infinity;
+  for (const e of g.edges.keys()) {
+    const [p,q]=g.edgeEndpoints(e);
+    const m={x:(p.x+q.x)/2,y:(p.y+q.y)/2,z:(p.z+q.z)/2};
+    const d=m.x*fwd.x+m.y*fwd.y+m.z*fwd.z;
+    if (d>bestD) { bestD=d; best={e,m}; }
+  }
+  const s=app.viewport.worldToScreen(best.m);
+  return { x:s.x, y:s.y };
+});
+await page.mouse.move(box.x+tapada.x, box.y+tapada.y); await page.waitForTimeout(120);
+const hTapada = await page.evaluate(()=>window.form3d.editor.tool?.hovered ?? null);
+check('una arista tapada por el sólido no se señala',
+  !hTapada || hTapada.kind !== 'edge', JSON.stringify(hTapada));
+
 check('sin errores de consola', errs.length===0, errs.slice(0,2).join(' | '));
 const bad = ok.filter(o=>!o[1]);
 console.log(`\n${ok.length-bad.length}/${ok.length} correctas`);

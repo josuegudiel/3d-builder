@@ -4,7 +4,9 @@ import {
   Vec2, Vec3, v2, v3, sub, dot, lengthSq, addScaled,
 } from '../math/vec';
 import { Plane, planeBasis, to2D, planePlaneIntersect, planeEquals, PlaneBasis } from '../math/plane';
-import { pointInPolygon2, Box3, emptyBox, expandBox } from '../math/geom';
+import {
+  pointInPolygon2, pointOnPolygonBoundary2, Box3, emptyBox, expandBox,
+} from '../math/geom';
 import { EPS } from '../math/tolerance';
 import { insertSegment } from '../topology/insert';
 
@@ -43,8 +45,19 @@ function cross2(a: Vec2, b: Vec2): number {
   return a.x * b.y - a.y * b.x;
 }
 
-/** ¿Está el punto dentro de la cara, contando los agujeros? (par-impar). */
+/**
+ * ¿Está el punto dentro de la cara, contando los agujeros? (par-impar).
+ *
+ * Un punto que cae JUSTO sobre el contorno cuenta como dentro. La prueba de
+ * par-impar no está definida en el borde, y ese caso aparece siempre que la
+ * recta de corte es colineal con una arista de la cara: sin esta salvedad, el
+ * tramo del fondo de una muesca se perdía en unos polígonos y se conservaba en
+ * otros según cómo estuviera escrito su contorno.
+ */
 function insideLoops(loops: readonly Vec2[][], p: Vec2): boolean {
+  for (const loop of loops) {
+    if (pointOnPolygonBoundary2(loop, p, EPS)) return true;
+  }
   let inside = false;
   for (const loop of loops) {
     if (pointInPolygon2(loop, p)) inside = !inside;
@@ -185,8 +198,13 @@ function boundarySegments(geo: Geometry, faceId: Id): Segment3[] {
 }
 
 export interface IntersectResult {
-  /** Aristas tocadas por la inserción (nuevas y partidas). */
+  /** Aristas tocadas por la inserción (nuevas, partidas y repasadas). */
   edges: Id[];
+  /**
+   * Aristas que NO existían antes. Es lo que hay que contarle al usuario:
+   * repasar una arista que ya estaba no añade nada al modelo.
+   */
+  created: Id[];
   /** Segmentos de corte encontrados. */
   segments: number;
 }
@@ -206,7 +224,7 @@ export function intersectFaceSets(
 ): IntersectResult {
   const listA = [...facesA].filter((f) => geo.faces.has(f));
   const listB = [...facesB].filter((f) => geo.faces.has(f));
-  if (listA.length === 0 || listB.length === 0) return { edges: [], segments: 0 };
+  if (listA.length === 0 || listB.length === 0) return { edges: [], created: [], segments: 0 };
 
   const boxA = new Map<Id, Box3>();
   for (const f of listA) boxA.set(f, faceBox(geo, f));
@@ -243,12 +261,19 @@ export function intersectFaceSets(
   }
 
   const edges: Id[] = [];
+  const created: Id[] = [];
   for (const s of segments) {
     if (lengthSq(sub(s.b, s.a)) <= EPS * EPS) continue;
-    edges.push(...insertSegment(geo, s.a, s.b).affectedEdges);
+    const r = insertSegment(geo, s.a, s.b);
+    edges.push(...r.affectedEdges);
+    created.push(...r.newEdges);
   }
 
-  return { edges: [...new Set(edges)], segments: segments.length };
+  return {
+    edges: [...new Set(edges)],
+    created: [...new Set(created)],
+    segments: segments.length,
+  };
 }
 
 /** Planos distintos de un conjunto de caras. */

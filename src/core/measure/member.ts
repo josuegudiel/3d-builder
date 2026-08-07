@@ -8,7 +8,7 @@ import { Geometry } from '../model/geometry';
 import { Model } from '../model/model';
 import { Id } from '../model/types';
 import { faceArea, triangulateFace } from '../topology/triangulate';
-import { CutAngles, cutAngles, lineAngle, miterPlaneNormal } from './angles';
+import { CutAngles, cutAngles, lineAngle, miterPlaneNormal, commonPlaneNormal } from './angles';
 import { METERS_PER } from '../units';
 
 /**
@@ -106,47 +106,74 @@ interface Frame {
 }
 
 /**
- * Caja envolvente orientada de una nube de puntos, probando los marcos que
- * definen las propias normales de las caras y quedándose con el de menor
- * volumen. Para un prisma recto el mínimo es exacto: sus caras ya dan las tres
- * direcciones. Para una pieza redonda (un poste torneado) da una caja ajustada,
- * que es lo mejor que se puede decir sin más información.
+ * Caja envolvente orientada de una nube de puntos.
+ *
+ * Se prueban los marcos que definen las propias normales de las caras, más el
+ * que dan los ejes principales de la nube y los ejes globales, y se elige el
+ * mejor. Para un prisma recto el resultado es exacto: sus caras ya dan las tres
+ * direcciones.
+ *
+ * "El mejor" no puede ser sólo el de menor volumen: en una nube plana —una
+ * tabla dibujada como una sola cara, un grupo hecho de aristas— todos los
+ * marcos tienen volumen cero y ganaría el primero que se probara. La
+ * comparación es por tanto en cascada: volumen, después área y por último
+ * longitud, de modo que una tabla plana devuelve su largo y su ancho de verdad
+ * y una nube alineada en una recta devuelve su longitud.
  */
 function orientedBox(shape: Shape): { frame: Frame; min: Vec3; max: Vec3 } | null {
   if (shape.points.length < 2) return null;
 
   // Direcciones candidatas: normales distintas, las de mayor área primero.
   const dirs: Vec3[] = [];
+  const addDir = (n: Vec3) => {
+    if (lengthSq(n) <= 0) return;
+    const u = normalize(n);
+    for (const d of dirs) {
+      if (Math.abs(dot(d, u)) > 1 - 1e-9) return;
+    }
+    dirs.push(u);
+  };
+
   const ordered = [...shape.normals].sort((a, b) => b.area - a.area);
   for (const { n } of ordered) {
-    if (lengthSq(n) <= 0) continue;
-    let dup = false;
-    for (const d of dirs) {
-      if (Math.abs(dot(d, n)) > 1 - 1e-9) {
-        dup = true;
-        break;
-      }
-    }
-    if (!dup) dirs.push(normalize(n));
+    addDir(n);
     if (dirs.length >= 16) break;
   }
-  // Siempre se prueban también los ejes globales: si la pieza no tiene caras
-  // (sólo aristas) o es redonda, este marco sigue dando un resultado útil.
-  dirs.push(v3(1, 0, 0), v3(0, 1, 0), v3(0, 0, 1));
+  // Ejes principales de la nube: es lo único que da un marco correcto cuando no
+  // hay caras de las que sacar normales (un grupo de sólo aristas, una pieza
+  // torneada) o cuando la pieza es plana.
+  for (const axis of principalAxes(shape.points)) addDir(axis);
+  // Y los ejes globales, como último recurso siempre disponible.
+  addDir(v3(1, 0, 0));
+  addDir(v3(0, 1, 0));
+  addDir(v3(0, 0, 1));
 
-  let best: { frame: Frame; min: Vec3; max: Vec3; vol: number } | null = null;
+  // Escala de la nube, para que las tolerancias de comparación sean relativas.
+  const world = extents(shape.points, { u: v3(1, 0, 0), v: v3(0, 1, 0), w: v3(0, 0, 1) });
+  const scale = Math.max(
+    world.max.x - world.min.x, world.max.y - world.min.y, world.max.z - world.min.z, 1e-12,
+  );
+
+  interface Candidate { frame: Frame; min: Vec3; max: Vec3; vol: number; area: number; len: number }
+  let best: Candidate | null = null;
+
   for (let i = 0; i < dirs.length; i++) {
-    for (let j = 0; j < dirs.length; j++) {
-      if (i === j) continue;
+    for (let j = i + 1; j < dirs.length; j++) {
       if (Math.abs(dot(dirs[i], dirs[j])) > 1e-6) continue;
       const u = dirs[i];
       const v = normalize(sub(dirs[j], mul(u, dot(dirs[j], u))));
       if (lengthSq(v) <= 0) continue;
-      const w = cross(u, v);
-      const frame: Frame = { u, v, w };
+      const frame: Frame = { u, v, w: cross(u, v) };
       const ext = extents(shape.points, frame);
-      const vol = (ext.max.x - ext.min.x) * (ext.max.y - ext.min.y) * (ext.max.z - ext.min.z);
-      if (!best || vol < best.vol - 1e-15) best = { frame, min: ext.min, max: ext.max, vol };
+      const sides = [ext.max.x - ext.min.x, ext.max.y - ext.min.y, ext.max.z - ext.min.z]
+        .sort((a, b) => b - a);
+      const cand: Candidate = {
+        frame, min: ext.min, max: ext.max,
+        vol: sides[0] * sides[1] * sides[2],
+        area: sides[0] * sides[1],
+        len: sides[0],
+      };
+      if (!best || betterBox(cand, best, scale)) best = cand;
     }
   }
   if (best) return { frame: best.frame, min: best.min, max: best.max };
@@ -155,6 +182,91 @@ function orientedBox(shape: Shape): { frame: Frame; min: Vec3; max: Vec3 } | nul
   const frame: Frame = { u: v3(1, 0, 0), v: v3(0, 1, 0), w: v3(0, 0, 1) };
   const ext = extents(shape.points, frame);
   return { frame, min: ext.min, max: ext.max };
+}
+
+/** Comparación en cascada: volumen, área y longitud, con tolerancia relativa. */
+function betterBox(
+  a: { vol: number; area: number; len: number },
+  b: { vol: number; area: number; len: number },
+  scale: number,
+): boolean {
+  const ev = scale ** 3 * 1e-12;
+  if (a.vol < b.vol - ev) return true;
+  if (a.vol > b.vol + ev) return false;
+  const ea = scale ** 2 * 1e-12;
+  if (a.area < b.area - ea) return true;
+  if (a.area > b.area + ea) return false;
+  // A igualdad de volumen y área, gana la caja MÁS LARGA: es la que sigue la
+  // dirección real de la pieza (una recta mide su longitud, no su diagonal).
+  return a.len > b.len + scale * 1e-12;
+}
+
+/**
+ * Ejes principales de una nube de puntos (matriz de covarianza diagonalizada
+ * por rotaciones de Jacobi). Para una caja girada devuelve sus tres
+ * direcciones aunque no haya ni una sola cara de la que sacarlas.
+ */
+function principalAxes(points: readonly Vec3[]): Vec3[] {
+  const n = points.length;
+  if (n < 2) return [];
+  let cx = 0, cy = 0, cz = 0;
+  for (const p of points) { cx += p.x; cy += p.y; cz += p.z; }
+  cx /= n; cy /= n; cz /= n;
+
+  let xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+  for (const p of points) {
+    const dx = p.x - cx, dy = p.y - cy, dz = p.z - cz;
+    xx += dx * dx; xy += dx * dy; xz += dx * dz;
+    yy += dy * dy; yz += dy * dz; zz += dz * dz;
+  }
+
+  let m = [[xx, xy, xz], [xy, yy, yz], [xz, yz, zz]];
+  let v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const pairs: Array<[number, number]> = [[0, 1], [0, 2], [1, 2]];
+
+  for (let sweep = 0; sweep < 24; sweep++) {
+    const off = Math.abs(m[0][1]) + Math.abs(m[0][2]) + Math.abs(m[1][2]);
+    const scale = Math.abs(m[0][0]) + Math.abs(m[1][1]) + Math.abs(m[2][2]);
+    if (off <= scale * 1e-18 || off === 0) break;
+    for (const [p, q] of pairs) {
+      if (Math.abs(m[p][q]) <= 1e-300) continue;
+      const theta = (m[q][q] - m[p][p]) / (2 * m[p][q]);
+      const sign = theta >= 0 ? 1 : -1;
+      const t = sign / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const c = 1 / Math.sqrt(t * t + 1);
+      const s = t * c;
+      const j = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+      j[p][p] = c; j[q][q] = c; j[p][q] = s; j[q][p] = -s;
+      m = mat3mul(mat3mul(transpose3(j), m), j);
+      v = mat3mul(v, j);
+    }
+  }
+
+  return [
+    normalize(v3(v[0][0], v[1][0], v[2][0])),
+    normalize(v3(v[0][1], v[1][1], v[2][1])),
+    normalize(v3(v[0][2], v[1][2], v[2][2])),
+  ].filter((a) => lengthSq(a) > 0.5);
+}
+
+function mat3mul(a: number[][], b: number[][]): number[][] {
+  const out = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let i = 0; i < 3; i++) {
+    for (let k = 0; k < 3; k++) {
+      const aik = a[i][k];
+      if (aik === 0) continue;
+      for (let j = 0; j < 3; j++) out[i][j] += aik * b[k][j];
+    }
+  }
+  return out;
+}
+
+function transpose3(a: number[][]): number[][] {
+  return [
+    [a[0][0], a[1][0], a[2][0]],
+    [a[0][1], a[1][1], a[2][1]],
+    [a[0][2], a[1][2], a[2][2]],
+  ];
 }
 
 function extents(points: readonly Vec3[], f: Frame): { min: Vec3; max: Vec3 } {
@@ -266,11 +378,21 @@ export function nominalSection(thickness: number, width: number): string | null 
 
 export type JointKind = 'esquina' | 'te' | 'cruce' | 'prolongación' | 'suelto';
 
+/** Dos piezas por debajo de este ángulo se consideran paralelas (0,1°). */
+const PARALLEL_LIMIT = (0.1 * Math.PI) / 180;
+
 export interface MemberCut extends CutAngles {
   /** Dirección de la pieza saliendo del nudo, unitaria. */
   outward: Vec3;
-  /** Testa que se corta, o null si el nudo no cae en un extremo. */
-  end: Vec3 | null;
+  /** Testa que se corta. */
+  end: Vec3;
+  /**
+   * Cómo se obtiene el corte:
+   *  - `inglete`: las dos piezas se cortan por la bisectriz;
+   *  - `tope`: esta pieza se corta contra la cara de la otra;
+   *  - `escuadra`: corte perpendicular al eje.
+   */
+  style: 'inglete' | 'tope' | 'escuadra';
 }
 
 export interface JointReport {
@@ -284,13 +406,19 @@ export interface JointReport {
   point: Vec3;
   /** Separación entre los ejes en el nudo: 0 si se cortan de verdad. */
   gap: number;
-  /** true si las dos piezas apoyan en el mismo plano (inglete sin bisel). */
+  /** true si las caras anchas de las dos piezas están en el mismo plano. */
   sameFacePlane: boolean;
   /** true si los ejes son paralelos. */
   parallel: boolean;
   kind: JointKind;
-  /** Corte de cada pieza, en el mismo orden en que se pasaron. */
-  cuts: [MemberCut, MemberCut];
+  /**
+   * Corte de cada pieza, o null si esa pieza no se corta: la que pasa de largo
+   * en una unión en te, y las dos en un cruce. Publicar un inglete donde no hay
+   * corte sería inventar un número.
+   */
+  cuts: [MemberCut | null, MemberCut | null];
+  /** Direcciones con las que se ha medido el ángulo. */
+  directions: [Vec3, Vec3];
 }
 
 /**
@@ -304,36 +432,62 @@ export interface JointReport {
 export function analyseJoint(a: Member, b: Member): JointReport {
   const near = closestPointsSegmentSegment(a.ends[0], a.ends[1], b.ends[0], b.ends[1]);
   const point = mul(add(near.p1, near.p2), 0.5);
-  const parallel = near.parallel || lineAngle(a.axis, b.axis) <= 1e-6;
+  const axisAngle = lineAngle(a.axis, b.axis);
+  const parallel = near.parallel || axisAngle <= PARALLEL_LIMIT;
 
   const outA = outwardFrom(a, point);
   const outB = outwardFrom(b, point);
 
-  const angle = angleBetween(outA.dir, outB.dir);
-  const axisAngle = lineAngle(a.axis, b.axis);
+  // Direcciones con las que se mide el ángulo.
+  //
+  // Cuando las dos piezas terminan en el nudo, sus direcciones salientes son
+  // las buenas y no hay ambigüedad. Pero una pieza que PASA de largo se aleja
+  // del nudo por sus dos lados, y tomar "el lado del extremo más cercano"
+  // hacía que el ángulo saltara de 60° a 120° según en qué mitad cayera el
+  // nudo. Para esos casos se elige el sentido que da el ángulo agudo, que es
+  // una definición estable; el suplementario va aparte, como siempre.
+  let dirA = outA.dir;
+  let dirB = outB.dir;
+  if (!outA.atEnd && !outB.atEnd) {
+    dirA = a.axis;
+    dirB = towards(b.axis, dirA);
+  } else if (!outA.atEnd) {
+    dirA = towards(a.axis, dirB);
+  } else if (!outB.atEnd) {
+    dirB = towards(b.axis, dirA);
+  }
+  const angle = angleBetween(dirA, dirB);
 
+  // Prolongación = dos piezas alineadas que se rematan una contra otra. Si son
+  // paralelas pero sus ejes no coinciden, van una al lado de la otra.
+  const reach = 0.25 * (Math.hypot(a.width, a.thickness) + Math.hypot(b.width, b.thickness));
   const kind: JointKind = parallel
-    ? (outA.atEnd && outB.atEnd ? 'prolongación' : 'suelto')
+    ? (outA.atEnd && outB.atEnd && near.dist <= reach ? 'prolongación' : 'suelto')
     : outA.atEnd && outB.atEnd ? 'esquina'
       : outA.atEnd || outB.atEnd ? 'te'
         : 'cruce';
 
-  const sameFacePlane = Math.abs(dot(a.faceNormal, b.faceNormal)) > 1 - 1e-6;
+  // Normal de referencia de cada pieza. En una sección cuadrada —un 4×4— cuál
+  // es "la cara ancha" es arbitrario, así que se elige la que mejor describe el
+  // plano de la unión; si no, el inglete y el bisel salen intercambiados.
+  const jointNormal = commonPlaneNormal(dirA, dirB);
+  const nA = referenceNormal(a, jointNormal);
+  const nB = referenceNormal(b, jointNormal);
 
-  // Plano de inglete: bisectriz de las dos direcciones salientes. Si las piezas
-  // están alineadas no hay bisectriz posible y el corte es a escuadra.
-  const m = miterPlaneNormal(outA.dir, outB.dir) ?? outA.dir;
+  let cutA: MemberCut | null = null;
+  let cutB: MemberCut | null = null;
 
-  const cutA: MemberCut = {
-    ...cutAngles(m, { axis: outA.dir, faceNormal: a.faceNormal }),
-    outward: outA.dir,
-    end: outA.atEnd ? outA.end : null,
-  };
-  const cutB: MemberCut = {
-    ...cutAngles(m, { axis: outB.dir, faceNormal: b.faceNormal }),
-    outward: outB.dir,
-    end: outB.atEnd ? outB.end : null,
-  };
+  if (kind === 'esquina' || kind === 'prolongación') {
+    // Las dos se cortan por la bisectriz.
+    const m = miterPlaneNormal(dirA, dirB) ?? dirA;
+    const style = kind === 'prolongación' ? 'escuadra' : 'inglete';
+    cutA = { ...cutAngles(m, { axis: dirA, faceNormal: nA }), outward: dirA, end: outA.end, style };
+    cutB = { ...cutAngles(m, { axis: dirB, faceNormal: nB }), outward: dirB, end: outB.end, style };
+  } else if (kind === 'te') {
+    // Sólo se corta la que termina, y se corta a tope contra la cara de la otra.
+    if (outB.atEnd) cutB = buttCut(nB, dirB, outB.end, a);
+    else cutA = buttCut(nA, dirA, outA.end, b);
+  }
 
   return {
     angle,
@@ -341,23 +495,83 @@ export function analyseJoint(a: Member, b: Member): JointReport {
     axisAngle,
     point,
     gap: near.dist,
-    sameFacePlane,
+    sameFacePlane: facesCoplanar(a, b, nA, nB),
     parallel,
     kind,
     cuts: [cutA, cutB],
+    directions: [dirA, dirB],
   };
+}
+
+/** El sentido de `axis` que forma ángulo agudo con `ref`. */
+function towards(axis: Vec3, ref: Vec3): Vec3 {
+  return dot(axis, ref) >= 0 ? axis : mul(axis, -1);
+}
+
+/**
+ * Corte a tope: la pieza que termina se recorta contra la cara de la otra por
+ * la que entra, que es la dirección de la sección de esa otra pieza más
+ * alineada con la llegada.
+ */
+function buttCut(
+  branchNormal: Vec3,
+  outward: Vec3,
+  end: Vec3,
+  through: Member,
+): MemberCut {
+  let best = through.faceNormal;
+  let bestDot = Math.abs(dot(through.faceNormal, outward));
+  const alt = Math.abs(dot(through.widthDir, outward));
+  if (alt > bestDot) {
+    best = through.widthDir;
+    bestDot = alt;
+  }
+  return {
+    ...cutAngles(best, { axis: outward, faceNormal: branchNormal }),
+    outward,
+    end,
+    style: 'tope',
+  };
+}
+
+/** Normal de la cara de referencia, desambiguada si la sección es cuadrada. */
+function referenceNormal(m: Member, jointNormal: Vec3 | null): Vec3 {
+  const biggest = Math.max(m.width, m.thickness, 1e-12);
+  const square = Math.abs(m.width - m.thickness) <= biggest * 0.01;
+  if (!square || !jointNormal) return m.faceNormal;
+  return Math.abs(dot(m.widthDir, jointNormal)) > Math.abs(dot(m.faceNormal, jointNormal))
+    ? m.widthDir
+    : m.faceNormal;
+}
+
+/**
+ * ¿Están las caras de referencia de las dos piezas en el MISMO plano? No basta
+ * con que sus normales sean paralelas: dos tablas apiladas también lo cumplen y
+ * su unión sí necesita bisel.
+ */
+function facesCoplanar(a: Member, b: Member, nA: Vec3, nB: Vec3): boolean {
+  if (Math.abs(dot(nA, nB)) <= 1 - 1e-6) return false;
+  const offset = Math.abs(dot(nA, sub(a.centre, b.centre)));
+  return offset <= 0.25 * (a.thickness + b.thickness) + 1e-9;
 }
 
 /**
  * Dirección en la que la pieza se aleja del nudo, y si el nudo cae en una de
- * sus testas. La tolerancia es la propia sección de la pieza: un nudo a menos
- * de media escuadría del extremo es un remate, no un cruce.
+ * sus testas.
+ *
+ * La tolerancia es la propia sección: un nudo a menos de media escuadría del
+ * extremo es un remate. No puede depender del largo —en una viga de diez
+ * metros, un nudo a veinte centímetros del extremo es media luz, no un
+ * remate—, pero sí se acota a un cuarto de la pieza para que en un taco muy
+ * corto no sea "testa" cualquier punto.
  */
 function outwardFrom(m: Member, joint: Vec3): { dir: Vec3; atEnd: boolean; end: Vec3 } {
   const d0 = distance(joint, m.ends[0]);
   const d1 = distance(joint, m.ends[1]);
   const nearest = d0 <= d1 ? 0 : 1;
-  const tolerance = 0.5 * Math.hypot(m.width, m.thickness) + m.length * 0.02;
+  // Una escuadría completa: en una esquina donde las dos piezas se solapan, el
+  // nudo de los ejes queda apartado del extremo hasta media sección de cada una.
+  const tolerance = Math.min(Math.hypot(m.width, m.thickness), m.length * 0.25);
   const atEnd = Math.min(d0, d1) <= tolerance;
 
   // Hacia el cuerpo de la pieza: desde el extremo próximo hacia el otro.

@@ -276,7 +276,114 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
 // ---------------------------------------------------------------------------
-// 11. Sin errores
+// 11. La medida no ensucia el modelo; la cota se pide con Ctrl
+// ---------------------------------------------------------------------------
+await reset();
+await page.waitForTimeout(150);
+const bbox = await page.locator('canvas').boundingBox();
+await page.evaluate(() => {
+  const api = window.form3d.api;
+  api.rectangle(0, 0, 2, 1.5);
+  api.zoomExtents();
+});
+await page.waitForTimeout(300);
+await page.keyboard.press('n');
+await page.waitForTimeout(100);
+
+// Dos clics sobre dos aristas concurrentes: mide, pero no deja cota.
+const esquinas = await page.evaluate(() => {
+  const app = window.form3d;
+  const v = app.editor.geometry.findVertexAt(app.api.p(0, 0, 0));
+  const ids = [...(app.editor.geometry.vertexEdges.get(v) ?? [])];
+  return ids.map((e) => {
+    const [p, q] = app.editor.geometry.edgeEndpoints(e);
+    const m = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, z: (p.z + q.z) / 2 };
+    return app.viewport.worldToScreen(m);
+  });
+});
+for (const s of esquinas) await page.mouse.click(bbox.x + s.x, bbox.y + s.y);
+await page.waitForTimeout(250);
+let cotas = await page.evaluate(() => window.form3d.editor.model.angleDimensions.size);
+check('medir un ángulo no deja cota sin pedirla', cotas === 0, `${cotas} cotas`);
+
+await page.keyboard.down('Control');
+for (const s of esquinas) await page.mouse.click(bbox.x + s.x, bbox.y + s.y);
+await page.keyboard.up('Control');
+await page.waitForTimeout(250);
+cotas = await page.evaluate(() => window.form3d.editor.model.angleDimensions.size);
+check('con Ctrl la cota se queda puesta', cotas === 1, `${cotas} cotas`);
+
+// Y se pueden borrar desde el menú.
+await page.evaluate(() => {
+  const m = [...document.querySelectorAll('.menu')]
+    .find((x) => x.querySelector('button')?.textContent.trim() === 'Edición');
+  [...m.querySelectorAll('.menu-item')].find((i) => i.textContent.startsWith('Eliminar cotas')).click();
+});
+await page.waitForTimeout(250);
+cotas = await page.evaluate(() => window.form3d.editor.model.angleDimensions.size);
+check('las cotas se pueden eliminar', cotas === 0, `${cotas} cotas`);
+await page.keyboard.press('v');
+await page.waitForTimeout(80);
+
+// ---------------------------------------------------------------------------
+// 12. Una booleana fallida no toca el modelo ni el historial
+// ---------------------------------------------------------------------------
+await reset();
+await page.waitForTimeout(150);
+const fallo = await page.evaluate(() => {
+  const app = window.form3d;
+  const api = app.api;
+  // Dos rectángulos planos agrupados: no son sólidos cerrados.
+  api.rectangle(0, 0, 1, 1);
+  api.select({ faces: api.faces().map((f) => f.id) });
+  const g1 = api.group('a');
+  api.rectangle(3, 3, 4, 4);
+  api.select({ faces: api.faces().map((f) => f.id) });
+  const g2 = api.group('b');
+  api.rectangle(6, 6, 7, 7);
+  app.editor.undo();                     // deja algo que rehacer
+  api.select({ instances: [g1, g2] });
+  return { g1, g2 };
+});
+await page.evaluate(() => {
+  const m = [...document.querySelectorAll('.menu')]
+    .find((x) => x.querySelector('button')?.textContent.trim() === 'Sólidos');
+  [...m.querySelectorAll('.menu-item')].find((i) => i.textContent.startsWith('Unir')).click();
+});
+await page.waitForTimeout(300);
+const trasFallo = await page.evaluate(() => ({
+  estado: document.querySelector('.status-text')?.textContent ?? '',
+  seleccion: window.form3d.editor.selection.instances.size,
+}));
+check('la booleana imposible avisa sin romper nada',
+  /sólido cerrado/.test(trasFallo.estado), trasFallo.estado);
+check('la selección se conserva tras el fallo', trasFallo.seleccion === 2, `${trasFallo.seleccion}`);
+
+const antesRehacer = await page.evaluate(() => window.form3d.api.faces().length);
+await page.keyboard.press('Control+y');
+await page.waitForTimeout(300);
+const rehecho = await page.evaluate(() => window.form3d.api.faces().length);
+check('el rehacer del usuario sobrevive al fallo',
+  antesRehacer === 0 && rehecho === 1, `${antesRehacer} → ${rehecho} caras sueltas`);
+
+// ---------------------------------------------------------------------------
+// 13. Intersecar caras pide una selección
+// ---------------------------------------------------------------------------
+await reset();
+await page.waitForTimeout(150);
+await page.evaluate(() => window.form3d.api.solid('box', { width: 1, depth: 1, height: 1 }));
+await page.waitForTimeout(200);
+await page.evaluate(() => {
+  const m = [...document.querySelectorAll('.menu')]
+    .find((x) => x.querySelector('button')?.textContent.trim() === 'Sólidos');
+  [...m.querySelectorAll('.menu-item')].find((i) => i.textContent.startsWith('Intersecar caras')).click();
+});
+await page.waitForTimeout(250);
+const sinSel = await page.evaluate(() => document.querySelector('.status-text')?.textContent ?? '');
+check('intersecar caras pide una selección', /selecciona antes/.test(sinSel), sinSel);
+
+// ---------------------------------------------------------------------------
+// 14. Sin errores
 // ---------------------------------------------------------------------------
 check('sin errores de consola', errs.length === 0, errs.slice(0, 3).join(' | '));
 
