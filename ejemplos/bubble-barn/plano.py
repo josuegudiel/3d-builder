@@ -337,7 +337,7 @@ def hoja_A1(c):
 
     # -- panel de notas -------------------------------------------------------
     px = x0
-    h.caja(px, y0 + 52, 180, 316, relleno=None)
+    h.caja(px, 30, 180, 378, relleno=None)
     h.texto(px + 8, y0 + 354, 'NOTAS DEL ALZADO', 8.6, 'Helvetica-Bold')
     h.parrafo(px + 8, y0 + 340, [
         '**GEOMETRÍA DEL TECHO',
@@ -361,17 +361,23 @@ def hoja_A1(c):
         f'· {AREA_CUBIERTA:.0f} sq ft de faldón + alero.',
         '· 1/2" de contrachapado, fieltro 15 lb y',
         '  teja asfáltica arquitectónica.',
-        '· AVISO: el faldón bajo está a 28.97 en 12,',
-        '  por encima de 21 en 12. Las tejas exigen',
-        '  6 clavos por pieza y sellado a mano de',
-        '  las lengüetas (instrucción del fabricante',
-        '  para pendiente fuerte).',
+        '· AVISO: faldón bajo a 28.97 en 12 (> 21 en 12):',
+        '  la teja exige 6 clavos por pieza y sellado',
+        '  a mano de las lengüetas.',
         '· Banda de arranque en el alero Y encima',
         '  de cada quiebro de rodilla.',
         '· LOS DOS QUIEBROS SON DE 45° EN ARISTA',
         '  VIVA y la teja asfáltica no los dobla:',
         '  achaflana el canto del tablero o clava',
         '  una cuña de transición (T7 y T8).',
+        '',
+        '**LAS DOS COTAS DEL CLIENTE',
+        f'· {pies(ARRANQUE_TECHO)} es ESTRUCTURAL: canto superior del',
+        '  cordón inferior, donde arrancan los cabios.',
+        f'· {pies(ALTURA_TERMINADA)} es de ACABADO, con la caperuza.',
+        f'· En el ALERO el acabado queda {frac(CANTO_CUBIERTA_ALERO, 32)} sobre la',
+        f'  línea de {pies(ARRANQUE_TECHO)}, no a ras: el faldón bajo va',
+        '  a 67.5° y ahí el paquete se ve peraltado.',
         '',
         '**GÁLIBOS',
         f'· Bajo la carrera: {pies(Z_VIGA_INF)}.',
@@ -1244,6 +1250,8 @@ def hoja_A8(c):
         'Los 8 jabalcones a 45°. AHORA, antes de quitar los puntales.',
         f'Plataforma: largueros, 3 viguetas y los 20 bloqueos. TALADRA LOS 10 HUECOS '
         f'ANTES de atornillar el tablero definitivamente.',
+        'COMPRA LA TEJA ANTES DE CORTAR LA PRIMERA CERCHA y mide el paquete real con '
+        'calibre: el espesor entra en la fórmula de la flecha (hoja A-5).',
         f'Traza la plantilla de la cercha (hoja A-5) y arma las {N_CERCHAS} cerchas en el suelo.',
         f'Iza las cerchas a {frac(SEP_CERCHAS)} O.C., 2 herrajes antihuracán cada una, '
         f'y arriostra provisionalmente.',

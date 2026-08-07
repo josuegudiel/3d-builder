@@ -78,6 +78,13 @@ def canto_cubierta(ply=None, fieltro=None, teja=None, cap=None):
 
 CANTO_CUBIERTA = canto_cubierta()
 
+# La cota de arranque (84") es ESTRUCTURAL: canto superior del cordon inferior.
+# La de altura terminada (132") es de ACABADO.  En el ALERO, sobre el faldon
+# bajo (67.5°), el acabado queda esto por encima de la linea de arranque; quien
+# mida con cinta en el alero no debe esperar 84" hasta la teja.
+CANTO_CUBIERTA_ALERO = ((ESP_TABLERO_CUB + ESP_FIELTRO + ESP_TEJA)
+                        / math.cos(ANG_BAJO))
+
 # --- Flecha: sale de los 11'-0" TERMINADOS, no al reves --------------------
 FLECHA = ALTURA_TERMINADA - ARRANQUE_TECHO - CANTO_CUBIERTA   # 46.9382"
 
@@ -497,6 +504,10 @@ def comprobar():
     check(abs(lb_sup - CUERDA_BAJA) < 1e-9 and abs(la_sup - CUERDA_ALTA) < 1e-9,
           f'cabio bajo {lb_sup:.6f}" y alto {la_sup:.6f}" coinciden con los '
           f'puntos de trabajo')
+    check(CANTO_CUBIERTA_ALERO > CANTO_CUBIERTA,
+          f'en el alero el acabado queda {frac(CANTO_CUBIERTA_ALERO, 32)} sobre la '
+          f'linea de arranque (en cumbrera, {frac(CANTO_CUBIERTA, 32)}): las dos '
+          f'cotas del cliente son de naturaleza distinta')
     check(abs(ALTURA_TERMINADA - (Z_ARRANQUE + FLECHA + CANTO_CUBIERTA)) < 1e-9,
           f'ALTURA TERMINADA = {Z_ARRANQUE + FLECHA + CANTO_CUBIERTA:.6f}" '
           f'= {pies(ALTURA_TERMINADA)} EXACTOS')
