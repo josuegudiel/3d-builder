@@ -275,8 +275,8 @@ cara) y se usa en las pruebas después de cada operación.
 ## Pruebas
 
 ```bash
-npm test          # 449 pruebas del núcleo geométrico
-npm run test:e2e  # 221 comprobaciones conduciendo la aplicación en Chromium
+npm test          # 461 pruebas del núcleo geométrico
+npm run test:e2e  # 228 comprobaciones conduciendo la aplicación en Chromium
                   # (construye, sirve, prueba y apaga el servidor)
 npm run verify    # tipos + núcleo + navegador, todo seguido
 ```

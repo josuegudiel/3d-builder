@@ -17,7 +17,10 @@ import { AngleTool, selectionAngleSummary } from '../tools/angle';
 import { icon } from './icons';
 import { THEME } from '../render/theme';
 import { Id } from '../core/model/types';
-import { formatLength, formatArea, formatVolume, LengthUnit, LengthFormat, UNIT_NAME } from '../core/units';
+import {
+  formatLength, formatArea, formatVolume, parseLength, parseAngle,
+  LengthUnit, LengthFormat, UNIT_NAME,
+} from '../core/units';
 import { faceArea } from '../core/topology/triangulate';
 import {
   shellVolume, isSolid, faceComponent, flipFace, orientFacesConsistently,
@@ -403,18 +406,18 @@ export class AppUI {
       { tool: new CircleTool(e), iconName: 'circle', shortcut: 'c', group: 1 },
       { tool: new PolygonTool(e), iconName: 'polygon', shortcut: 'g', group: 1 },
       { tool: new ArcTool(e), iconName: 'arc', shortcut: 'a', group: 1 },
-      { tool: new Arc3Tool(e), iconName: 'arc3', group: 1 },
+      { tool: new Arc3Tool(e), iconName: 'arc3', shortcut: 'i', group: 1 },
       { tool: new PushPullTool(e), iconName: 'pushpull', shortcut: 'p', group: 2 },
       { tool: new MoveTool(e), iconName: 'move', shortcut: 'm', group: 2 },
       { tool: new RotateTool(e), iconName: 'rotate', shortcut: 'q', group: 2 },
       { tool: new ScaleTool(e), iconName: 'scale', shortcut: 's', group: 2 },
       { tool: new OffsetTool(e), iconName: 'offset', shortcut: 'f', group: 2 },
-      { tool: new FollowMeTool(e), iconName: 'followme', group: 2 },
+      { tool: new FollowMeTool(e), iconName: 'followme', shortcut: 'u', group: 2 },
       { tool: new EraserTool(e), iconName: 'eraser', shortcut: 'e', group: 3 },
       { tool: this.paintTool, iconName: 'paint', shortcut: 'b', group: 3 },
       { tool: new TapeMeasureTool(e), iconName: 'tape', shortcut: 't', group: 4 },
       { tool: new DimensionTool(e), iconName: 'dimension', shortcut: 'd', group: 4 },
-      { tool: new ProtractorTool(e), iconName: 'protractor', group: 4 },
+      { tool: new ProtractorTool(e), iconName: 'protractor', shortcut: 'j', group: 4 },
       { tool: new AngleTool(e), iconName: 'angle', shortcut: 'n', group: 4 },
       { tool: new OrbitTool(e), iconName: 'orbit', shortcut: 'o', group: 5 },
       { tool: new PanTool(e), iconName: 'pan', shortcut: 'h', group: 5 },
@@ -533,13 +536,24 @@ export class AppUI {
   private commitMeasurement(): void {
     const text = this.vcbInput.value.trim();
     if (!text) return;
-    const ok = this.editor.tool.onMeasurement?.(text) ?? false;
+    if (!this.editor.tool.onMeasurement) {
+      this.vcbInput.select();
+      this.editor.setStatus(`${this.editor.tool.name} no admite escribir medidas.`);
+      return;
+    }
+    const ok = this.editor.tool.onMeasurement(text);
     if (ok) {
       this.vcbInput.value = '';
       this.viewport.renderer.domElement.focus();
     } else {
       this.vcbInput.select();
-      this.editor.setStatus('No se pudo interpretar el valor. Ejemplos: 1200, 1.2m, 5\' 6", 30;20');
+      // Si el texto se entiende como medida, lo que falla es el valor o el
+      // momento; decir siempre "no se pudo interpretar" era mentira.
+      const entendible = parseLength(text, { defaultUnit: this.editor.units.unit }) !== null
+        || parseAngle(text) !== null;
+      this.editor.setStatus(entendible
+        ? `${this.editor.tool.name} no puede usar ese valor ahora.`
+        : 'No se pudo interpretar el valor. Ejemplos: 1200, 1.2m, 5\' 6", 30;20');
     }
   }
 
@@ -592,10 +606,16 @@ export class AppUI {
     }
 
     switch (ev.key) {
-      case 'Escape':
+      case 'Escape': {
+        // Primero se cancela lo que esté a medias; si no había nada, Escape
+        // sirve para salir del grupo que se esté editando, con cualquier
+        // herramienta y no sólo con Seleccionar.
+        const ocupada = this.editor.tool.busy?.() ?? false;
         this.editor.tool.cancel?.();
+        if (!ocupada && this.editor.contextPath.length > 0) this.editor.exitContext();
         ev.preventDefault();
         return;
+      }
       case 'Delete':
       case 'Backspace':
         this.deleteSelection();
@@ -682,11 +702,15 @@ export class AppUI {
   private doInvert(): void {
     invertSelection(this.editor.selection, this.editor.geometry);
     this.editor.refreshModel();
+    this.editor.setStatus(this.editor.selectionSummary());
   }
 
   private deleteSelection(): void {
     const sel = this.editor.selection;
-    if (selectionSize(sel) === 0) return;
+    if (selectionSize(sel) === 0) {
+      this.editor.setStatus('No hay nada seleccionado que borrar.');
+      return;
+    }
     const edges = [...sel.edges];
     const faces = [...sel.faces];
     const instances = [...sel.instances];
@@ -733,20 +757,28 @@ export class AppUI {
 
   private doFlipFaces(): void {
     const faces = [...this.editor.selection.faces];
-    if (faces.length === 0) return;
+    if (faces.length === 0) {
+      this.editor.setStatus('Invertir caras: selecciona antes las caras.');
+      return;
+    }
     this.editor.edit('Invertir caras', () => {
       for (const f of faces) flipFace(this.editor.geometry, f);
     });
+    this.editor.setStatus(`Invertida(s) ${faces.length} cara(s).`);
   }
 
   private doOrient(): void {
     const faces = [...this.editor.selection.faces];
     const geo = this.editor.geometry;
     const seeds = faces.length > 0 ? faces : [...geo.faces.keys()];
-    if (seeds.length === 0) return;
-    this.editor.edit('Orientar caras', () => {
-      orientFacesConsistently(geo, seeds);
-    });
+    if (seeds.length === 0) {
+      this.editor.setStatus('No hay caras que orientar.');
+      return;
+    }
+    const r = this.editor.edit('Orientar caras', () => orientFacesConsistently(geo, seeds));
+    this.editor.setStatus(r.flipped.length > 0
+      ? `Orientadas: ${r.flipped.length} cara(s) invertidas.`
+      : 'Las caras ya estaban orientadas de forma coherente.');
   }
 
   /** Borra todas las cotas: son anotaciones, no geometría, y Supr no las toca. */
@@ -1111,8 +1143,7 @@ export class AppUI {
   private showHelp(): void {
     const sections: Array<[string, Array<[string, string]>]> = [
       ['Herramientas', this.tools
-        .filter((t) => t.shortcut)
-        .map((t) => [t.shortcut!.toUpperCase(), t.tool.name] as [string, string])],
+        .map((t) => [t.shortcut ? t.shortcut.toUpperCase() : '—', t.tool.name] as [string, string])],
       ['Navegación', [
         ['Rueda', 'Acercar o alejar hacia el cursor'],
         ['Botón central', 'Orbitar'],

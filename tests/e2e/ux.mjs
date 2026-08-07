@@ -194,6 +194,119 @@ const hDetras = await page.evaluate(()=>window.form3d.editor.tool?.hovered ?? nu
 check('una arista 20 mm detrás de una cara no se señala',
   hDetras !== null && hDetras.kind === 'face', JSON.stringify(hDetras));
 
+// 11. Cambiar de herramienta a medias no deja puntos colgando
+await page.evaluate(()=>{
+  const app = window.form3d;
+  app.editor.replaceModel(new (app.editor.model.constructor)());
+});
+await page.waitForTimeout(200);
+await page.keyboard.press('l'); await page.waitForTimeout(80);
+await page.mouse.click(box.x+400, box.y+400); await page.waitForTimeout(120);
+await page.keyboard.press('r'); await page.waitForTimeout(80);
+await page.keyboard.press('l'); await page.waitForTimeout(80);
+await page.mouse.click(box.x+700, box.y+300); await page.waitForTimeout(200);
+let st2 = await page.evaluate(()=>window.form3d.editor.model.visibleStats());
+check('cambiar de herramienta a medias no deja el punto puesto', st2.edges===0, JSON.stringify(st2));
+await page.keyboard.press('Escape');
+
+// Y Archivo ▸ Nuevo tampoco
+await page.evaluate(()=>{
+  const app = window.form3d;
+  app.api.rectangle(0,0,2,1.5);
+});
+await page.keyboard.press('r'); await page.waitForTimeout(80);
+await page.mouse.click(box.x+400, box.y+400); await page.waitForTimeout(120);
+await page.evaluate(()=>{
+  window.confirm = () => true;
+  const m = [...document.querySelectorAll('.menu')]
+    .find(x => x.querySelector('button')?.textContent.trim()==='Archivo');
+  [...m.querySelectorAll('.menu-item')].find(i=>i.textContent.startsWith('Nuevo')).click();
+});
+await page.waitForTimeout(250);
+await page.mouse.click(box.x+700, box.y+300); await page.waitForTimeout(200);
+st2 = await page.evaluate(()=>window.form3d.editor.model.visibleStats());
+check('Archivo ▸ Nuevo cancela la herramienta a medias', st2.faces===0, JSON.stringify(st2));
+await page.keyboard.press('Escape');
+
+// 12. Escape sale del grupo con cualquier herramienta
+await page.evaluate(()=>{
+  const app = window.form3d;
+  app.editor.replaceModel(new (app.editor.model.constructor)());
+  app.api.solid('box', {});
+  const id = app.api.instances()[0];
+  app.editor.enterContext(id);
+});
+await page.waitForTimeout(250);
+await page.keyboard.press('p'); await page.waitForTimeout(80);
+await page.keyboard.press('Escape'); await page.waitForTimeout(200);
+const fuera = await page.evaluate(()=>window.form3d.editor.contextPath.length);
+check('Escape sale del grupo con Empujar/Tirar activa', fuera===0, `contexto=${fuera}`);
+
+// 13. El transportador acepta un ángulo escrito
+await page.evaluate(()=>{
+  const app = window.form3d;
+  app.editor.replaceModel(new (app.editor.model.constructor)());
+  app.api.rectangle(0,0,2,2);
+  app.api.zoomExtents();
+});
+await page.waitForTimeout(300);
+await page.keyboard.press('j'); await page.waitForTimeout(100);
+const pts3 = await page.evaluate(()=>{
+  const v = window.form3d.viewport;
+  return [v.worldToScreen({x:0,y:0,z:0}), v.worldToScreen({x:1,y:0,z:0})];
+});
+await page.mouse.click(box.x+pts3[0].x, box.y+pts3[0].y); await page.waitForTimeout(120);
+await page.mouse.click(box.x+pts3[1].x, box.y+pts3[1].y); await page.waitForTimeout(120);
+await page.fill('.vcb input','30'); await page.press('.vcb input','Enter');
+await page.waitForTimeout(250);
+const guias = await page.evaluate(()=>window.form3d.editor.model.guides.size);
+check('el transportador acepta un ángulo escrito', guias===1, `${guias} guías`);
+
+// 14. El arco por 3 puntos acepta un radio escrito
+await page.evaluate(()=>{
+  const app = window.form3d;
+  app.editor.replaceModel(new (app.editor.model.constructor)());
+  app.api.rectangle(0,0,2,2);
+  // Vista isométrica: un caso anterior deja la frontal, y de canto el plano del
+  // suelo no permite señalar un tercer punto fuera de la cuerda.
+  app.api.view('iso');
+  app.api.zoomExtents();
+});
+await page.waitForTimeout(500);
+// El foco puede haberse quedado en el cuadro de medidas del caso anterior.
+await page.evaluate(()=>window.form3d.viewport.renderer.domElement.focus());
+await page.keyboard.press('i'); await page.waitForTimeout(150);
+const pts4 = await page.evaluate(()=>{
+  const v = window.form3d.viewport;
+  return [v.worldToScreen({x:0,y:0,z:0}), v.worldToScreen({x:2,y:0,z:0}), v.worldToScreen({x:1,y:1.2,z:0})];
+});
+const antesArco = await page.evaluate(()=>window.form3d.editor.geometry.edges.size);
+await page.mouse.click(box.x+pts4[0].x, box.y+pts4[0].y); await page.waitForTimeout(120);
+await page.mouse.click(box.x+pts4[1].x, box.y+pts4[1].y); await page.waitForTimeout(120);
+await page.mouse.move(box.x+pts4[2].x-6, box.y+pts4[2].y-6); await page.waitForTimeout(120);
+await page.mouse.move(box.x+pts4[2].x, box.y+pts4[2].y); await page.waitForTimeout(250);
+const admite = await page.locator('.vcb input').isEnabled();
+if (admite) {
+  await page.fill('.vcb input','1500'); await page.press('.vcb input','Enter');
+  await page.waitForTimeout(300);
+}
+const trasArco = await page.evaluate(()=>window.form3d.editor.geometry.edges.size);
+check('el arco por 3 puntos acepta un radio escrito',
+  admite && trasArco > antesArco, `cuadro ${admite ? 'activo' : 'inactivo'}, ${antesArco} → ${trasArco} aristas`);
+
+// 15. Ayuda ▸ Atajos lista las 22 herramientas
+await page.keyboard.press('Escape'); await page.waitForTimeout(80);
+await page.keyboard.press('?'); await page.waitForTimeout(300);
+const nAtajos = await page.evaluate(()=>{
+  const secciones = [...document.querySelectorAll('.modal h3, .modal h2, .modal b')];
+  const grid = document.querySelector('.modal .help-grid');
+  return grid ? grid.querySelectorAll('kbd').length : (secciones.length, 0);
+});
+const nBotones = await page.evaluate(()=>document.querySelectorAll('.tool-btn').length);
+check('el diálogo de atajos lista todas las herramientas',
+  nAtajos >= nBotones, `${nAtajos} atajos listados, ${nBotones} herramientas`);
+await page.keyboard.press('Escape'); await page.waitForTimeout(150);
+
 check('sin errores de consola', errs.length===0, errs.slice(0,2).join(' | '));
 const bad = ok.filter(o=>!o[1]);
 console.log(`\n${ok.length-bad.length}/${ok.length} correctas`);

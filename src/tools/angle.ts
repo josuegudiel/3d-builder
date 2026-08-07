@@ -2,13 +2,14 @@ import { BaseTool } from './base';
 import { PointerInfo } from '../app/editor';
 import { Overlay } from '../render/overlay';
 import { THEME } from '../render/theme';
-import { Vec3, v3, sub, cross, normalize, lengthSq, addScaled } from '../core/math/vec';
+import { Vec3, v3, sub, cross, normalize, lengthSq, addScaled, midpoint } from '../core/math/vec';
 import { EPS } from '../core/math/tolerance';
 import { Id } from '../core/model/types';
 import { pickEntity } from '../pick/picker';
 import { formatAngle, formatLength } from '../core/units';
 import {
   dihedralAngle, angleBetweenEdges, lineAngle, planeAngle, cutAngles, miterPlaneNormal,
+  faceEdgeDirection,
 } from '../core/measure/angles';
 import { measureInstance, analyseJoint } from '../core/measure/member';
 import { describeJoint } from '../core/measure/report';
@@ -119,6 +120,10 @@ export class AngleTool extends BaseTool {
   }
 
   // -------------------------------------------------------------------------
+
+  override busy(): boolean {
+    return this.first !== null;
+  }
 
   /** Consulta memorizada: ¿es la cara parte de un sólido cerrado? */
   private readonly solidOf = (faceId: Id): boolean => this.editor.shellOf(faceId);
@@ -253,6 +258,30 @@ export class AngleTool extends BaseTool {
       return;
     }
 
+    if (a.kind === 'face' && b.kind === 'face') {
+      // Dos caras que comparten arista: la cota va en el punto medio de esa
+      // arista, con un lado dentro de cada cara.
+      for (const eid of geo.faceEdges(a.id)) {
+        if (!geo.edgeFaces.get(eid)?.has(b.id)) continue;
+        const [p, q] = geo.edgeEndpoints(eid);
+        const centre = this.world(midpoint(p, q));
+        const dirA = this.inwardDir(a.id, eid);
+        const dirB = this.inwardDir(b.id, eid);
+        if (!dirA || !dirB) return;
+        const r = Math.max(EPS * 10, geo.edgeLength(eid) * 0.3);
+        const pa = addScaled(centre, this.editor.toWorldVector(dirA), r);
+        const pb = addScaled(centre, this.editor.toWorldVector(dirB), r);
+        this.editor.edit('Cota angular', () => {
+          this.editor.model.addAngleDimension(
+            this.editor.toRoot(centre), this.editor.toRoot(pa), this.editor.toRoot(pb), r,
+          );
+        });
+        return;
+      }
+      this.editor.setStatus('Las dos caras no comparten arista: no hay dónde poner la cota.');
+      return;
+    }
+
     if (a.kind === 'instance' && b.kind === 'instance') {
       const ma = measureInstance(this.editor.model, geo, a.id);
       const mb = measureInstance(this.editor.model, geo, b.id);
@@ -268,6 +297,16 @@ export class AngleTool extends BaseTool {
         );
       });
     }
+  }
+
+  /** Dirección que entra en la cara desde una de sus aristas, en el plano. */
+  private inwardDir(faceId: Id, edgeId: Id): Vec3 | null {
+    const geo = this.editor.geometry;
+    const f = geo.faces.get(faceId);
+    const d = faceEdgeDirection(geo, faceId, edgeId);
+    if (!f || !d) return null;
+    const inward = cross(f.plane.n, d);
+    return lengthSq(inward) > 0 ? normalize(inward) : null;
   }
 
   override drawOverlay(overlay: Overlay): void {

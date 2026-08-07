@@ -3,7 +3,8 @@ import { PointerInfo } from '../app/editor';
 import { Overlay } from '../render/overlay';
 import { THEME } from '../render/theme';
 import {
-  Vec3, sub, add, mul, dot, cross, normalize, length, distance, addScaled, v3,
+  Vec3, sub, add, mul, dot, cross, normalize, length, lengthSq, distance, addScaled,
+  midpoint, v3,
 } from '../core/math/vec';
 import { Plane, planeFromPointNormal } from '../core/math/plane';
 import { EPS } from '../core/math/tolerance';
@@ -572,6 +573,36 @@ export class Arc3Tool extends DrawingTool {
     }
     if (this.curve.length >= 2) this.commit(this.curve, false, 'Arco');
     this.cancel();
+  }
+
+  /**
+   * Radio exacto. Con los dos extremos puestos, el radio determina la comba:
+   * h = R − √(R² − (cuerda/2)²). El lado hacia el que abomba lo sigue diciendo
+   * el cursor, que es lo que el usuario está viendo.
+   */
+  override onMeasurement(text: string): boolean {
+    if (this.points.length !== 2 || !this.preview) return false;
+    const radius = parseLength(text, { defaultUnit: this.editor.units.unit, allowNegative: false });
+    if (radius === null || radius <= EPS) return false;
+
+    const a = this.points[0];
+    const b = this.points[1];
+    const chord = distance(a, b);
+    if (chord <= EPS || radius < chord / 2 - EPS) return false;
+
+    const mid = midpoint(a, b);
+    const along = normalize(sub(b, a));
+    const off = sub(this.preview, mid);
+    const perp = sub(off, mul(along, dot(off, along)));
+    if (lengthSq(perp) <= EPS * EPS) return false;
+
+    const h = radius - Math.sqrt(Math.max(0, radius * radius - (chord / 2) ** 2));
+    const through = addScaled(mid, normalize(perp), h);
+    const r = arcFrom3Points(a, through, b, this.segments);
+    if (!r || r.points.length < 2) return false;
+    this.commit(r.points, false, 'Arco');
+    this.cancel();
+    return true;
   }
 
   override cancel(): void {

@@ -303,7 +303,10 @@ export class Editor {
 
   undo(): void {
     const restored = this.history.undo(this.model);
-    if (!restored) return;
+    if (!restored) {
+      this.setStatus('No hay nada que deshacer.');
+      return;
+    }
     this.model = restored;
     this.clampContext();
     clearSelection(this.selection);
@@ -312,7 +315,10 @@ export class Editor {
 
   redo(): void {
     const restored = this.history.redo(this.model);
-    if (!restored) return;
+    if (!restored) {
+      this.setStatus('No hay nada que rehacer.');
+      return;
+    }
     this.model = restored;
     this.clampContext();
     clearSelection(this.selection);
@@ -327,6 +333,9 @@ export class Editor {
 
   /** Sustituye el modelo completo (al abrir un archivo). */
   replaceModel(model: Model): void {
+    // La herramienta activa puede tener puntos del modelo anterior: sin
+    // cancelarla, el siguiente clic dibujaba desde una esquina que ya no existe.
+    this.tool.cancel?.();
     this.model = model;
     this.contextPath = [];
     clearSelection(this.selection);

@@ -29,6 +29,10 @@ import { planeBasis, to2D, to3D } from '../core/math/plane';
  * convierte una cara plana en un volumen, o desplaza la cara de un sólido.
  */
 export class PushPullTool extends BaseTool {
+  override busy(): boolean {
+    return this.faceId !== null;
+  }
+
   readonly id = 'pushpull';
   readonly name = 'Empujar/Tirar';
   readonly statusHint = 'Clic en una cara y arrastra. Escribe la distancia para un valor exacto. Ctrl crea geometría nueva.';
@@ -671,6 +675,10 @@ export class ScaleTool extends BaseTool {
 
 /** Herramienta Equidistancia: desplaza el contorno de una cara. */
 export class OffsetTool extends BaseTool {
+  override busy(): boolean {
+    return this.faceId !== null;
+  }
+
   readonly id = 'offset';
   readonly name = 'Equidistancia';
   readonly statusHint = 'Clic en una cara y arrastra hacia dentro o hacia fuera. Escribe la distancia exacta.';
