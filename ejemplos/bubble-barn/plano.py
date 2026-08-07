@@ -469,7 +469,7 @@ def hoja_A2(c):
     h.titulo_vista(x0 + 190, y0 + 30, 2, 'ALZADO LATERAL', '1/2" = 1\'-0"')
 
     px = x0
-    h.caja(px, y0 + 52, 168, 316, relleno=None)
+    h.caja(px, 30, 168, 378, relleno=None)
     h.texto(px + 8, y0 + 354, 'NOTAS DEL ALZADO', 8.6, 'Helvetica-Bold')
     h.parrafo(px + 8, y0 + 340, [
         '**ESTABILIDAD LATERAL',
@@ -478,36 +478,48 @@ def hoja_A2(c):
         '  a 45° y el entablado de cubierta.',
         '· NO se puede suprimir ninguno de los 8.',
         f'· Jabalcón: catetos de {frac(JABALCON_CATETO)}, punta larga',
-        f'  {frac(JABALCON_LARGA)}, punta corta {frac(JABALCON_CORTA)},',
-        '  45° en los dos extremos.',
-        '· 2 tornillos estructurales 1/4" x 4" por',
-        '  extremo. Ver detalle 5 de la hoja A-6.',
+        f'  {frac(JABALCON_LARGA)}, punta corta {frac(JABALCON_CORTA)}.',
+        '· 2 PERNOS DE CARRO de 1/2" por extremo, NO',
+        '  tornillos: la demanda es de 826 lb y con',
+        '  tornillos el nudo se agota.',
+        '',
+        '**LA PLATAFORMA ES ESTRUCTURAL',
+        '· Sus largueros van EMPERNADOS a los cuatro',
+        '  postes (2 pernos de 1/2" por poste) y son',
+        '  el segundo punto de arriostrado del poste.',
+        '· Sin ella el 4x4 se agota a flexión (100%);',
+        '  con ella se queda en el 67%. No es una',
+        '  balda: es parte de la estructura.',
         '',
         '**APOYO SOBRE EL TERRENO',
         f'· 2 patines 4x6 PT de {frac(LARGO)} bajo las líneas',
         '  de postes, sobre lecho de grava #57',
         f'  compactada de {frac(GRAVA)} con geotextil.',
-        f'· El lecho sobresale {frac(4.0)} del perímetro',
-        '  para drenaje.',
+        f'· El lecho sobresale {frac(4.0)} para drenaje.',
         '· Nivelar los patines con nivel de manguera',
         '  o láser: TODO lo demás depende de eso.',
         '· 4 anclajes helicoidales, uno por poste.',
         f'· El ± 0\'-0" es la cara superior de la grava.',
         '',
         '**CERCHAS',
-        f'· {N_CERCHAS} cerchas a {frac(SEP_CERCHAS)} O.C.: las de hastial a',
-        '  haces con la testa de la carrera, y así un',
-        f'  eje cae en {frac(POS_CERCHAS[2])} justos, donde empalman',
-        '  los tableros de 4x8. La junta queda apoyada.',
+        f'· {N_CERCHAS} cerchas a {frac(SEP_CERCHAS)} O.C., las de hastial a haces:',
+        f'  un eje cae en {frac(POS_CERCHAS[2])} justos, donde empalman los',
+        '  tableros de 4x8, y la junta queda apoyada.',
         '· Rigidizador longitudinal 2x4 clavado bajo',
         '  los 5 tirantes de rodilla (pieza T6).',
-        '· 2 herrajes antihuracán por cercha.',
+        '· 14 herrajes antihuracán: 2 por cercha',
+        '  interior y 4 por cercha de hastial, por la',
+        '  cara INTERIOR del cordón.',
+        '· En las DOS cerchas de hastial las cartelas',
+        '  van por la cara INTERIOR, dobladas (2 capas',
+        '  de 1/2"): la cara exterior queda limpia y',
+        f'  los tacos de vuelo, todos de {frac(VUELO_HASTIAL - S2x4[0])}.',
         f'· Vuelo de {frac(VUELO_HASTIAL)} con escalera de vuelo.',
         '',
         '**TABLERO DE CUBIERTA',
         f'· Fajas de {frac(CUERDA_BAJA)}, {frac(CUERDA_ALTA)} y 13": el tablero',
         '  no dobla en los quiebros de 45°.',
-    ], 6.2, 8.0)
+    ], 6.1, 7.5)
     c.showPage()
 
 
@@ -643,8 +655,10 @@ def hoja_A3(c):
         f'· Haz UN hueco de prueba de {frac(DIAM_HUECO)} en un',
         '  recorte con la cubeta que vayas a usar.',
         '  Debe colgar del cono con el borde ~1"',
-        '  sobre el tablero; si baja más de 2",',
-        '  cierra el hueco a 10 3/4".',
+        '  sobre el tablero.',
+        '  Si baja más de 2", cierra a 10 3/4".',
+        '  Si se queda de pie sin entrar, abre a',
+        '  11 1/4" o 11 1/2".',
         f'· Holgura al patín con la cubeta a tope: {frac(FONDO_CUBETA - Z_PATIN_SUP)}.',
     ], 5.9, 7.7)
     c.showPage()
@@ -939,8 +953,9 @@ def hoja_A5(c):
         f'la plantilla y compruébala antes de cortar las otras cuatro.',
         f'7.  Los dos ingletes de un cabio son de MANO CONTRARIA: convergen hacia el canto '
         f'inferior. Da la vuelta a la tabla manteniendo el mismo canto contra la guía.',
-        f'8.  Cartelas de 1/2" contrachapado en las DOS caras de la rodilla (14" x 14") y '
-        f'de la cumbrera (18" x 9"), con tornillos de 1 5/8" a 3".',
+        f'8.  Cartelas de 1/2" contrachapado en las DOS caras de rodilla (14"x14"), cumbrera '
+        f'(18"x9") y talón (14"x10"), con tornillo ESTRUCTURAL #9 x 1 5/8" a 3" en dos hileras. '
+        f'NO tornillo de pladur: las cartelas SON la estructura.',
         f'9.  En el talón SÍ va cartela (14" x 10", las dos caras): la cola de alero cruza '
         f'el cabio a 90° y sola no cose el nudo. La cola se clava ENCIMA de la cartela.',
     ]
@@ -1048,13 +1063,14 @@ def hoja_A6(c):
     h.fin_recorte()
     h.parrafo(x + 7, yn, [
         '· Quiebro de 45°: inglete de 22.5° en las DOS piezas.',
-        '· El tirante topa contra la CARA INTERIOR de los cabios',
-        '  BAJOS, con su canto superior en la esquina interior.',
-        '· Contra el cabio bajo (67.5°) el corte vuelve a ser 22.5°.',
-        '  Contra el cabio ALTO pediría 67.5°: fuera de sierra.',
-        '· La rodilla es la rótula del gambrel: sin tirante y sin',
-        '  cartelas la cercha se abre. No se pueden omitir.',
-    ], 5.6, 7.2)
+        '· El tirante topa contra la CARA INTERIOR de los cabios BAJOS,',
+        '  con su canto superior en la esquina interior. Contra el',
+        '  cabio ALTO pediría 67.5°: fuera del recorrido de la sierra.',
+        '· LAS CARTELAS SON LA ESTRUCTURA: con nudos articulados el',
+        '  panel inferior es un mecanismo, y lo único que lo sostiene',
+        '  es la rigidez a giro de las cartelas. Con viento el momento',
+        '  de rodilla se multiplica por 34. Ver hoja A-5, paso 8.',
+    ], 5.6, 6.9)
 
     # ---- 9. CUMBRERA -------------------------------------------------------
     x, y, w, hh, yn, rc = _celda(h, 2, 9, 'CUMBRERA', '3/4" = 1\'-0"', 56)
@@ -1131,13 +1147,13 @@ def hoja_A6(c):
     v.texto(22, 46.4, 'CARRERA 2x8', 5.0, 'Helvetica', black, al='c')
     h.fin_recorte()
     h.parrafo(x + 7, yn, [
-        f'· 2x4 PT. Punta larga {frac(JABALCON_LARGA)}, punta corta {frac(JABALCON_CORTA)}.',
-        '· 45° en los dos extremos, cortes PARALELOS.',
-        '· 8 unidades: 4 esquinas x 2 direcciones.',
-        '· 2 tornillos estructurales 1/4" x 4" en cada extremo.',
-        '· Con los cuatro lados abiertos son el único plano de',
-        '  cortante junto con el tablero de cubierta: NO omitir.',
-    ], 5.6, 7.2)
+        f'· 2x4 PT. Punta larga {frac(JABALCON_LARGA)}, punta corta {frac(JABALCON_CORTA)}. 8 unidades:',
+        '  4 esquinas x 2 direcciones, 45° en los dos extremos.',
+        '· 2 PERNOS DE CARRO 1/2" x 5 3/4" HDG por extremo, con tuerca',
+        '  ciega. NO tornillos: demanda 826 lb y 3 clavos 16d sólo dan',
+        '  677 lb (122% de utilización: fallan).',
+        '· Único plano de cortante junto con el tablero: NO omitir.',
+    ], 5.6, 6.9)
 
     # ---- 12. CARRERA ARMADA ------------------------------------------------
     x, y, w, hh, yn, rc = _celda(h, 5, 12, 'CARRERA ARMADA Y CAPITEL',
@@ -1163,7 +1179,8 @@ def hoja_A6(c):
         '  justos, el mismo ancho que el poste: entra el capitel',
         '  estándar de 4x4 sin calzar.',
         f'· El cordón de la cercha apoya {frac(APOYO_CORDON)} en cada carrera.',
-        '· 2 herrajes antihuracán por cercha, uno en cada apoyo.',
+        '· Herraje antihuracán por la cara INTERIOR del cordón: 2 por',
+        '  cercha interior y 4 por cercha de hastial (14 en total).',
         '· Clavado del armado: 2 filas de clavos 10d a 12".',
     ], 5.6, 7.2)
     c.showPage()
@@ -1278,10 +1295,9 @@ def hoja_A8(c):
             h.texto(rx + 14, yy - k * 7.8, l, 6.3, 'Helvetica')
         yy -= len(lin) * 7.8 + 2.6
 
-    yy -= 8
-    h.caja(rx, yy - 122, 296, 122, relleno=CREMA, borde=ROJO, lw=1.1)
-    h.texto(rx + 8, yy - 13, 'SEGURIDAD — USO INFANTIL', 9.4, 'Helvetica-Bold', ROJO)
-    h.parrafo(rx + 8, yy - 25, [
+    h.caja(x0, 30, 422, 176, relleno=CREMA, borde=ROJO, lw=1.1)
+    h.texto(x0 + 8, 192, 'SEGURIDAD — USO INFANTIL', 9.4, 'Helvetica-Bold', ROJO)
+    h.parrafo(x0 + 8, 180, [
         'A.  Los 4 anclajes al terreno y los 8 jabalcones son ELEMENTOS',
         '     ESTRUCTURALES. No se pueden dejar para más adelante.',
         'B.  Estructura abierta y sin planta alta: no hay riesgo de caída',
@@ -1289,11 +1305,18 @@ def hoja_A8(c):
         'C.  Avellana todos los tornillos y redondea los cantos vistos con',
         '     radio de 1/8" mínimo. Repasa después de cada temporada.',
         f'D.  Zona de caída libre de {pies(72)} alrededor, con {frac(9)} de mantillo o césped.',
+        'D2. La línea de goteo cae 15 1/2" POR FUERA del borde de la plataforma, justo',
+        '     donde pisan los niños: canalón con bajante fuera de la zona de uso, o',
+        '     zanja drenante bajo el vertido.',
+        'D3. Los 4 anclajes van DENTRO de la huella, bajo el tablero, con la cabeza',
+        '     recesada y tapada: ni se tropieza con ellos ni se alcanzan.',
         'E.  Acabado exterior bajo en COV, apto para contacto con niños.',
         'F.  El agua jabonosa lo pudre todo: pendiente de 1/8" por pie hacia',
         '     fuera y toda la plataforma en madera tratada.',
-        'G.  Revisa el apriete de herrajes y la tensión de los anclajes cada',
-        '     temporada, y siempre después de un temporal.',
+        'G.  Revisa el apriete de herrajes y la tensión de los anclajes cada temporada,',
+        '     y siempre después de un temporal.',
+        'H.  Las cartelas de contrachapado y los pernos de los jabalcones son piezas',
+        '     ESTRUCTURALES: no se pueden sustituir por tornillos de pladur ni omitir.',
     ], 6.1, 8.0)
     c.showPage()
 
