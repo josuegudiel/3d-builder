@@ -154,7 +154,7 @@ def hoja_A0(c):
         f'poste > anclaje.', 100), 6.2, 8.0)
 
     # --- la cubierta -------------------------------------------------------
-    h.caja(x0, 58, sum(anc), 200, relleno=CREMA, borde=ROJO, lw=1.2)
+    h.caja(x0, 62, sum(anc), 196, relleno=CREMA, borde=ROJO, lw=1.2)
     h.texto(x0 + 10, 240, 'LA CUBIERTA, QUE ES LO QUE INTERESA', 10.4,
             'Helvetica-Bold', ROJO)
     grandes = [('67.5°', f'cabio bajo · pendiente {PEND_BAJA:.2f} en 12'),
@@ -172,14 +172,16 @@ def hoja_A0(c):
         82), 6.2, 8.0)
     c.setStrokeColor(ROJO)
     c.setLineWidth(0.5)
-    c.line(x0 + 12, 94, x0 + sum(anc) - 12, 94)
-    h.texto(x0 + 12, 84, 'SI PREFIERES LOS CABIOS TODOS IGUALES', 7.2,
+    c.line(x0 + 12, 98, x0 + sum(anc) - 12, 98)
+    h.texto(x0 + 12, 89, 'SI PREFIERES LOS CABIOS TODOS IGUALES', 7.2,
             'Helvetica-Bold', ROJO)
-    h.parrafo(x0 + 12, 74, _envolver(
-        f'Sube la carrera de {pies(ARRANQUE_TECHO)} a 7\'-11" y deja la flecha en '
-        f'{pies(36)}: vuelven los 28 cabios idénticos de 27 9/16" y los dos arcos, '
-        f'y los 11 pies se cumplen igual. Cuesta 11" más de poste.', 92),
-        6.1, 7.8)
+    h.parrafo(x0 + 12, 84, _envolver(
+        f'Sube la carrera de {pies(ARRANQUE_TECHO)} a {pies(ARRANQUE_IGUALADOR)} '
+        f'(la flecha pasa a valer media luz): vuelven los 28 cabios idénticos de '
+        f'{frac(ANCHO * math.sin(ANG_ALTO))} y los dos arcos, y los {pies(ALTURA_TERMINADA)} '
+        f'se siguen cumpliendo. Cuesta {frac(ARRANQUE_IGUALADOR - ARRANQUE_TECHO, 32)} más '
+        f'de poste, y CAMBIA la cota de 7\'-0" que fijaste: hace falta que lo confirmes.',
+        92), 6.0, 7.4)
 
     # --- índice -------------------------------------------------------------
     hojas = [('A-0', 'Portada y resumen'), ('A-1', 'Alzado frontal'),
@@ -188,12 +190,12 @@ def hoja_A0(c):
              ('A-5', 'PLANTILLA DE LA CERCHA'),
              ('A-6', 'Detalles constructivos'), ('A-7', 'Lista de corte'),
              ('A-8', 'Compra, secuencia y seguridad')]
-    h.texto(x0, 48, 'ÍNDICE DE HOJAS', 7.4, 'Helvetica-Bold')
+    h.texto(x0, 52, 'ÍNDICE DE HOJAS', 7.4, 'Helvetica-Bold')
     for k, (n, t) in enumerate(hojas):
-        col, fila = k % 5, k // 5
-        xx, yy2 = x0 + col * 96, 38 - fila * 8.4
+        col, fila = k % 4, k // 4
+        xx, yy2 = x0 + col * 98, 40 - fila * 8.6
         h.texto(xx, yy2, n, 6.2, 'Helvetica-Bold', ROJO if n == 'A-5' else black)
-        h.texto(xx + 19, yy2, t[:14], 5.6,
+        h.texto(xx + 19, yy2, t[:22], 5.6,
                 'Helvetica-Bold' if n == 'A-5' else 'Helvetica')
 
     # =========================  COLUMNA DERECHA  ===========================
@@ -236,29 +238,30 @@ def hoja_A0(c):
         h.texto(rx + 10, yy2, kk, 6.3, 'Helvetica', GRIS)
         h.texto(rx + rw - 10, yy2, val, 6.3, 'Helvetica-Bold', al='r')
 
-    h.caja(rx, 88, rw, 96, relleno=None)
-    h.texto(rx + 10, 171, 'EL PLANO CIERRA — COMPROBADO POR CÁLCULO', 8.4,
+    h.caja(rx, 88, rw, 98, relleno=None)
+    h.texto(rx + 10, 173, 'EL PLANO CIERRA — COMPROBADO POR CÁLCULO', 8.4,
             'Helvetica-Bold')
-    h.parrafo(rx + 10, 159, [
+    h.parrafo(rx + 10, 161, [
         f'· 2 x (carrera baja + alta) = {2*(CARRERA_BAJA+CARRERA_ALTA):.6f}" '
         f'= la luz de {frac(ANCHO)}',
         f'· suma de flechas = '
         f'{CARRERA_BAJA*math.tan(ANG_BAJO)+CARRERA_ALTA*math.tan(ANG_ALTO):.6f}" '
         f'= la flecha de {frac(FLECHA)}',
         f'· cabio bajo {CUERDA_BAJA:.4f}" y alto {CUERDA_ALTA:.4f}"',
-        f'· ALTURA TERMINADA = 84 + {FLECHA:.4f} + {CANTO_CUBIERTA:.4f} = '
-        f'{Z_CUMBRERA+CANTO_CUBIERTA:.4f}" = 11\'-0" EXACTOS',
+        f'· la flecha se DESPEJA de los {pies(ALTURA_TERMINADA)}: 132 - 84 - '
+        f'{CANTO_CUBIERTA:.4f} = {FLECHA:.4f}". Comprobar luego que suman 132 sería',
+        '  una identidad, no una verificación: sólo lo valida medir la teja',
         f'· el tirante queda {frac(P_RODILLA_D[1]-TIRANTE_V_SUP, 32)} bajo el punto '
         f'de trabajo: NO choca con el cabio',
         '  alto — el del plano original sí chocaba',
-        f'· arranque {pies(Z_ARRANQUE)} y acabado {pies(Z_CUMBRERA+CANTO_CUBIERTA)}: '
-        f'las dos cotas del cliente a la vez',
+        f'· arranque {pies(Z_ARRANQUE)} y acabado {pies(ALTURA_TERMINADA)} +0/-1/4", '
+        f'replanteado en obra',
         f'· levante de viento {LEVANTE:.0f} lb frente a '
         f'{ANCLAJES*ANCLAJE_CAPACIDAD:.0f} lb de anclajes',
         '',
-        f'**{N_CHECKS} comprobaciones automáticas, todas OK. Si alguna fallara,',
-        '**este PDF no se habría generado.',
-    ], 6.1, 7.2)
+        f'**{N_CHECKS} comprobaciones, todas OK; las identidades van marcadas [ID]',
+        '**y no cuentan. Si alguna fallara, este PDF no se habría generado.',
+    ], 5.9, 6.7)
     c.showPage()
 
 
@@ -366,10 +369,11 @@ def hoja_A1(c):
         '  a mano de las lengüetas.',
         '· Banda de arranque en el alero Y encima',
         '  de cada quiebro de rodilla.',
-        '· LOS DOS QUIEBROS SON DE 45° EN ARISTA',
-        '  VIVA y la teja asfáltica no los dobla:',
-        '  achaflana el canto del tablero o clava',
-        '  una cuña de transición (T7 y T8).',
+        '· LOS TRES QUIEBROS (alero, rodilla y',
+        '  CUMBRERA) son de 45° en arista viva y la',
+        '  teja no los dobla: cuña de transición en',
+        '  los tres (T7, T8 y T9), en bloques entre',
+        '  cerchas, no piezas corridas.',
         '',
         '**LAS DOS COTAS DEL CLIENTE',
         f'· {pies(ARRANQUE_TECHO)} es ESTRUCTURAL: canto superior del',
@@ -938,8 +942,9 @@ def hoja_A5(c):
     h.texto(tx, 190, 'CÓMO TRAZAR LA PLANTILLA (una sola vez, para las 5 cerchas)',
             9.0, 'Helvetica-Bold')
     pasos = [
-        f'1.  Sobre una hoja de 4x8 o sobre el suelo, traza una recta y marca en ella '
-        f'los {frac(ANCHO)} del cordón inferior. Marca el centro.',
+        f'1.  Sobre el TABLERO DE LA PLATAFORMA ya atornillado y nivelado (96" x 72"), '
+        f'traza una recta y marca en ella los {frac(ANCHO)} del cordón. Marca el centro. '
+        f'NO cabe en una hoja de 4x8: la cercha mide {frac(FLECHA + ANCHO_CABIO)} de alto.',
         f'2.  Desde cada extremo, {frac(CARRERA_BAJA, 32)} hacia DENTRO y '
         f'{frac(FLECHA_BAJA, 32)} hacia ARRIBA: ahí está la RODILLA.',
         f'3.  Desde la rodilla, {frac(CARRERA_ALTA, 32)} hacia DENTRO y '
@@ -949,47 +954,49 @@ def hoja_A5(c):
         f'5.  Esquinas interiores: {frac(ESQ_ASIENTO[0], 32)} desde el centro sobre la '
         f'recta; {frac(CARA_TOPE)} por debajo de la cumbrera; y la de la rodilla, '
         f'{frac(P_RODILLA_D[1]-ESQ_RODILLA[1], 32)} por debajo de su punto de trabajo.',
-        f'6.  Clava topes de 2x4 por fuera del contorno. Monta la PRIMERA cercha sobre '
-        f'la plantilla y compruébala antes de cortar las otras cuatro.',
+        f'6.  Clava topes de 2x4 DE CANTO (3 1/2") por fuera del contorno, para que sigan '
+        f'sujetando al voltear la cercha. Monta la PRIMERA y compruébala antes de cortar el resto.',
         f'7.  Los dos ingletes de un cabio son de MANO CONTRARIA: convergen hacia el canto '
         f'inferior. Da la vuelta a la tabla manteniendo el mismo canto contra la guía.',
-        f'8.  Cartelas de 1/2" contrachapado en las DOS caras de rodilla (14"x14"), cumbrera '
-        f'(18"x9") y talón (14"x10"), con tornillo ESTRUCTURAL #9 x 1 5/8" a 3" en dos hileras. '
-        f'NO tornillo de pladur: las cartelas SON la estructura.',
-        f'9.  En el talón SÍ va cartela (14" x 10", las dos caras): la cola de alero cruza '
-        f'el cabio a 90° y sola no cose el nudo. La cola se clava ENCIMA de la cartela.',
+        f'8.  Cartelas de 1/2" en las DOS caras de rodilla (14"x14"), cumbrera (18"x9") y TALÓN '
+        f'(14"x10"): tornillo ESTRUCTURAL #9 x 1 5/8" a 3", nunca de pladur.',
+        f'9.  Retranqueo por corte {RETRANQUEO:.4f}", cara de corte {CARA_TOPE:.4f}". MARCA SÓLO '
+        f'LA PUNTA LARGA: la corta sale del corte, no se traza.',
     ]
-    yy = 178
+    yy = 180
     for p in pasos:
-        h.texto(tx, yy, p, 6.3, 'Helvetica')
-        yy -= 9.4
-    h.texto(tx, yy - 1, f'Retranqueo por corte = {frac(ANCHO_CABIO)} x tan 22.5° = '
-            f'{frac(RETRANQUEO)} ({RETRANQUEO:.4f}").   Cara de corte = '
-            f'{frac(ANCHO_CABIO)} / cos 22.5° = {frac(CARA_TOPE)}.   Cada cabio es un '
-            f'TRAPECIO: hay que voltear la tabla entre los dos cortes.',
-            6.3, 'Helvetica-Bold')
+        h.texto(tx, yy, p, 6.2, 'Helvetica')
+        yy -= 8.6
 
     # --- retranqueo -----------------------------------------------------------
-    h.caja(tx, 24, 294, 60, relleno=CREMA, borde=ROJO, lw=1.1)
-    h.texto(tx + 8, 74, 'SI CAMBIAS LA TEJA, CAMBIA LA FLECHA', 7.2,
+    h.caja(tx, 24, 294, 82, relleno=CREMA, borde=ROJO, lw=1.1)
+    h.texto(tx + 8, 96, 'SI CAMBIAS LA TEJA, CAMBIA LA FLECHA', 7.2,
             'Helvetica-Bold', ROJO)
-    cols = [116, 34, 40]
+    cols = [112, 32, 38, 74]
     for tt, xx in zip(['PAQUETE DE CUBIERTA', 'CANTO', 'FLECHA',
-                       'CABIO BAJO / ALTO'],
-                      [0, cols[0], sum(cols[:2]), sum(cols[:3])]):
-        h.texto(tx + 8 + xx, 64.5, tt, 5.2, 'Helvetica-Bold', GRIS)
+                       'CABIO BAJO / ALTO', '84+F+C'],
+                      [0, cols[0], sum(cols[:2]), sum(cols[:3]), sum(cols)]):
+        h.texto(tx + 8 + xx, 87, tt, 5.0, 'Helvetica-Bold', GRIS)
     for k, (nom, canto, fl, lb, la) in enumerate(tabla_paquetes()):
-        yy2 = 55.5 - k * 7.2
+        yy2 = 78.5 - k * 7.0
         neg = 'ESTE PLANO' in nom
         f = 'Helvetica-Bold' if neg else 'Helvetica'
         col = ROJO if neg else black
-        h.texto(tx + 8, yy2, nom.replace('  (ESTE PLANO)', '')[:40], 5.2, f, col)
-        h.texto(tx + 8 + cols[0], yy2, frac(canto, 32), 5.2, f, col)
-        h.texto(tx + 8 + sum(cols[:2]), yy2, frac(fl), 5.2, f, col)
-        h.texto(tx + 8 + sum(cols[:3]), yy2, f'{frac(lb)} / {frac(la)}', 5.2, f, col)
-    h.texto(tx + 8, 28, f'Cada 1/16" mueve el cabio bajo {SENSIBILIDAD_BAJA:.3f}" '
-            f'y el alto {SENSIBILIDAD_ALTA:.3f}". MIDE UN APILADO REAL CON CALIBRE '
-            f'ANTES DE CORTAR.', 5.2, 'Helvetica-Bold')
+        h.texto(tx + 8, yy2, nom.replace('  (ESTE PLANO)', '')[:38], 5.0, f, col)
+        h.texto(tx + 8 + cols[0], yy2, frac(canto, 32), 5.0, f, col)
+        h.texto(tx + 8 + sum(cols[:2]), yy2, frac(fl, 32), 5.0, f, col)
+        h.texto(tx + 8 + sum(cols[:3]), yy2,
+                f'{frac(lb, 32)} / {frac(la, 32)}', 5.0, f, col)
+        h.texto(tx + 8 + sum(cols), yy2, f'{ARRANQUE_TECHO + fl + canto:.3f}',
+                5.0, f, col)
+    h.texto(tx + 8, 40, f'Cada 1/16" MÁS de tablero, fieltro o teja: cabio bajo '
+            f'{SENS_BAJA:+.3f}", alto {SENS_ALTA:+.3f}".  De caperuza: '
+            f'{SENS_CAP_BAJA:+.3f}" y {SENS_CAP_ALTA:+.3f}".', 5.1, 'Helvetica-Bold')
+    h.texto(tx + 8, 33, 'LOS DOS SE MUEVEN AL REVÉS: si el paquete engorda, el cabio '
+            'bajo se ACORTA y el alto se ALARGA.', 5.1, 'Helvetica-Bold', ROJO)
+    h.texto(tx + 8, 26.5, 'La cota de 11\'-0" NO está verificada hasta medir el apilado '
+            'real con calibre: 132" +0/-1/4", replanteada en obra.', 5.1,
+            'Helvetica-Bold', ROJO)
     c.showPage()
 
 
@@ -1260,13 +1267,15 @@ def hoja_A8(c):
         f'Extiende y compacta {frac(GRAVA)} de grava #57. NIVELA: todo lo demás depende de esto.',
         f'Coloca los 2 patines 4x6 PT de {frac(LARGO)}. Comprueba escuadra por diagonales '
         f'({math.hypot(LARGO, ANCHO):.2f}") y nivel en las dos direcciones.',
-        'Clava los 4 anclajes helicoidales y deja el fleje suelto: se tensa al final.',
+        'ATORNILLA los 4 anclajes helicoidales con barra de giro hasta el par especificado '
+        '(una barrena no se clava). Dos de ellos INCLINADOS a 45° en pares opuestos, para '
+        'el cortante. Tensor accesible de pie, con tapa.',
         f'Bases de poste y 4 postes 4x4 de {frac(POSTE_LARGO)}, aplomados y apuntalados.',
         f'Arma las 2 carreras (2 x 2x8 + alma de 1/2"), móntalas sobre los capiteles '
         f'a {pies(Z_VIGA_SUP)} y añade las 2 carreras de extremo.',
         'Los 8 jabalcones a 45°. AHORA, antes de quitar los puntales.',
-        f'Plataforma: largueros, 3 viguetas y los 20 bloqueos. TALADRA LOS 10 HUECOS '
-        f'ANTES de atornillar el tablero definitivamente.',
+        'Plataforma completa y atornillada, SIN TALADRAR: es el único banco plano de la '
+        'obra y el único sitio donde cabe la plantilla de la cercha. Tensa los anclajes.',
         'COMPRA LA TEJA ANTES DE CORTAR LA PRIMERA CERCHA y mide el paquete real con '
         'calibre: el espesor entra en la fórmula de la flecha (hoja A-5).',
         f'Traza la plantilla de la cercha (hoja A-5) y arma las {N_CERCHAS} cerchas en el suelo.',
@@ -1278,7 +1287,9 @@ def hoja_A8(c):
         'Tablero de cubierta en fajas, empezando por el alero. Fieltro y teja: 6 clavos '
         'por pieza y sellado a mano en el faldón bajo.',
         'Colas de alero, fascia, sofito y perfil del hastial. Cierra los dos hastiales.',
-        'Tensa los 4 anclajes. Lija, redondea cantos y sella. Cuelga las 10 cubetas.',
+        'AHORA sí: traza y corta los 10 huecos, sella el canto, cuelga las cubetas y pon '
+        'las tapas F7 en los vacíos. Revisa el par de los anclajes, lija, sella y graba '
+        'las marcas de llenado máximo de 3".',
     ]
     yy = y1 - 26
     for i, p in enumerate(pasos, 1):
@@ -1295,29 +1306,31 @@ def hoja_A8(c):
             h.texto(rx + 14, yy - k * 7.8, l, 6.3, 'Helvetica')
         yy -= len(lin) * 7.8 + 2.6
 
-    h.caja(x0, 30, 422, 176, relleno=CREMA, borde=ROJO, lw=1.1)
-    h.texto(x0 + 8, 192, 'SEGURIDAD — USO INFANTIL', 9.4, 'Helvetica-Bold', ROJO)
-    h.parrafo(x0 + 8, 180, [
-        'A.  Los 4 anclajes al terreno y los 8 jabalcones son ELEMENTOS',
-        '     ESTRUCTURALES. No se pueden dejar para más adelante.',
-        'B.  Estructura abierta y sin planta alta: no hay riesgo de caída',
-        '     en altura. Tampoco hay puertas ni ventanas que atrapen dedos.',
-        'C.  Avellana todos los tornillos y redondea los cantos vistos con',
-        '     radio de 1/8" mínimo. Repasa después de cada temporada.',
-        f'D.  Zona de caída libre de {pies(72)} alrededor, con {frac(9)} de mantillo o césped.',
-        'D2. La línea de goteo cae 15 1/2" POR FUERA del borde de la plataforma, justo',
-        '     donde pisan los niños: canalón con bajante fuera de la zona de uso, o',
-        '     zanja drenante bajo el vertido.',
-        'D3. Los 4 anclajes van DENTRO de la huella, bajo el tablero, con la cabeza',
-        '     recesada y tapada: ni se tropieza con ellos ni se alcanzan.',
-        'E.  Acabado exterior bajo en COV, apto para contacto con niños.',
-        'F.  El agua jabonosa lo pudre todo: pendiente de 1/8" por pie hacia',
-        '     fuera y toda la plataforma en madera tratada.',
-        'G.  Revisa el apriete de herrajes y la tensión de los anclajes cada temporada,',
-        '     y siempre después de un temporal.',
-        'H.  Las cartelas de contrachapado y los pernos de los jabalcones son piezas',
-        '     ESTRUCTURALES: no se pueden sustituir por tornillos de pladur ni omitir.',
-    ], 6.1, 8.0)
+    h.caja(x0, 26, 436, 176, relleno=CREMA, borde=ROJO, lw=1.1)
+    h.texto(x0 + 8, 188, 'SEGURIDAD — USO INFANTIL', 9.4, 'Helvetica-Bold', ROJO)
+    h.parrafo(x0 + 8, 177, [
+        '**A.  AHOGAMIENTO. Es el riesgo principal y manda sobre todo lo demás.',
+        f'     Diez cubetas de {frac(ALTO_CUBETA)} de fondo con el borde a {frac(Z_BOCA_CUBETA)}: un niño de dos',
+        '     años pivota sobre ese borde y no puede salir solo. REGLAS: llenar 3" de',
+        '     líquido como máximo (marca grabada en el tablero y en cada cubeta);',
+        '     VACIAR Y TAPAR AL TERMINAR; nunca dejar agua sin vigilancia; tapa ciega',
+        '     F7 en todo hueco sin cubeta. Si el uso va a ser sin vigilancia continua,',
+        '     sustituye la cubeta por bandeja de 4-6" de fondo: es la geometría que no atrapa.',
+        '**B.  SÍ SE PUEDE TREPAR, y hay que contarlo. El pie del jabalcón queda a',
+        f'     {frac(Z_VIGA_INF - JABALCON_CATETO)} del suelo, o sea {frac(Z_VIGA_INF - JABALCON_CATETO - Z_PLATAFORMA)} sobre la plataforma, y desde ahí se',
+        f'     sube a la carrera, a {pies(Z_VIGA_SUP)}. Caída potencial de {pies(Z_VIGA_SUP)} sobre grava,',
+        '     patines y cabezas de anclaje.',
+        f'D.  Superficie amortiguadora: 9" de fibra de madera o caucho suelto con altura',
+        f'     crítica >= 7 pies, en {pies(72)} alrededor Y TAMBIÉN DEBAJO de la caseta. Grava',
+        '     #57 y césped NO valen como superficie de caída.',
+        'E.  Avellana todos los tornillos y redondea los cantos vistos, radio 1/8".',
+        'F.  El agua jabonosa lo pudre todo: pendiente 1/8" por pie hacia fuera y toda',
+        '     la plataforma en madera tratada.',
+        'G.  Revisa cada temporada, y siempre tras un temporal, el apriete de herrajes y',
+        '     la TENSIÓN de los cuatro anclajes (accesibles de pie, sin meterse debajo).',
+        'H.  Cartelas de contrachapado, pernos de jabalcón y anclajes son piezas',
+        '     ESTRUCTURALES: ni se sustituyen por tornillos de pladur ni se omiten.',
+    ], 5.9, 7.5)
     c.showPage()
 
 

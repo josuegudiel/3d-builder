@@ -87,10 +87,12 @@ CERCHAS = [
           'Travesaños de la escalera de vuelo en los hastiales'),
     Pieza('T6', 1, '2x4', LARGO, 'escuadra',
           'Rigidizador longitudinal clavado bajo los 5 tirantes de rodilla'),
-    Pieza('T7', 2, '2x4', LARGO, f'canto achaflanado a {INGLETE}°',
-          'Cuña de transición en los dos quiebros de RODILLA, bajo el tablero'),
-    Pieza('T8', 2, '2x4', LARGO_CUBIERTA, f'canto achaflanado a {INGLETE}°',
-          'Cuña de transición en los dos quiebros de ALERO, bajo el tablero'),
+    Pieza('T7', 8, '2x4', SEP_CERCHAS - S2x4[0], f'canto achaflanado a {INGLETE}°',
+          'Cuña de transición en los 2 quiebros de RODILLA (bloques entre cerchas)'),
+    Pieza('T8', 8, '2x4', SEP_CERCHAS - S2x4[0], f'canto achaflanado a {INGLETE}°',
+          'Cuña de transición en los 2 quiebros de ALERO (bloques entre cerchas)'),
+    Pieza('T9', 4, '2x4', SEP_CERCHAS - S2x4[0], f'canto achaflanado a {INGLETE}°',
+          'Cuña de transición en la CUMBRERA: el tercer quiebro de 45°'),
 ]
 
 TABLEROS = [
@@ -100,18 +102,18 @@ TABLEROS = [
           'Cartela de rodilla 14" x 14", las dos caras'),
     Pieza('G3', 4 * N_CERCHAS, '1/2" contrachapado', 0, '—',
           'Cartela de TALÓN 14" x 10", las dos caras (la cola de alero va encima)'),
-    Pieza('S1', 2, '1/2" contrachapado', 96, '—',
-          f'Entablado de faldón bajo, bandas de {frac(CUERDA_BAJA)} de ancho'),
-    Pieza('S1b', 2, '1/2" contrachapado', 96, '—',
-          f'Entablado de faldón alto, bandas de {frac(CUERDA_ALTA)} de ancho'),
-    Pieza('S2', 4, '1/2" contrachapado', 12, '—',
-          f'Remate de los faldones hasta {frac(LARGO_CUBIERTA)}'),
-    Pieza('S3', 2, '1/2" contrachapado', 96, '—',
-          'Entablado de la falda del alero, bandas de 13"'),
-    Pieza('S4', 2, '1/2" contrachapado', 12, '—',
-          'Remate de la falda del alero'),
+    Pieza('S1', 2, '1/2" contrachapado', BANDA_CENTRAL, '—',
+          f'Faldón bajo, fajas de {frac(CUERDA_BAJA)} de ancho, de eje a eje de hastial'),
+    Pieza('S1b', 2, '1/2" contrachapado', BANDA_CENTRAL, '—',
+          f'Faldón alto, fajas de {frac(CUERDA_ALTA)} de ancho, de eje a eje de hastial'),
+    Pieza('S3', 2, '1/2" contrachapado', BANDA_CENTRAL, '—',
+          'Falda del alero, fajas de 13" de ancho'),
+    Pieza('S2', 12, '1/2" contrachapado', BANDA_REMATE, '—',
+          'Remates sobre los vuelos de hastial (2 por faja y hastial)'),
     Pieza('F6', 2, '3/4" contrachapado PT', 0, '—',
           'Tablero de la plataforma, hoja de 4x8'),
+    Pieza('F7', N_CUBETAS, '3/4" contrachapado PT', 0, '—',
+          f'Tapa ciega de {frac(DIAM_HUECO + 2)} Ø con tirador embutido, para todo hueco sin cubeta'),
     Pieza('S5', 2, 'LP SmartSide / T1-11', 0, '—',
           f'Hastial recortado al perfil gambrel ({frac(ANCHO)} x {frac(FLECHA)})'),
 ]
@@ -249,9 +251,12 @@ def compra_tableros():
     ply_cubierta = AREA_CUBIERTA
     # el entablado sale en bandas de 27 9/16" y 13": de cada hoja de 48"
     # se saca una banda de 27 9/16" y otra de 20 7/16"
-    hojas_cubierta = 6
+    # Corte de guillotina: cada faja ancha se lleva una hoja entera porque
+    # 48 - 41.408 = 6.6" es inservible, y 21.833 + 2x12.989 = 47.8" + vías no
+    # cabe en 48".  Se cuentan por fajas, no por superficie.
+    hojas_cubierta = 5 + math.ceil(ply_gussets / (32 * 0.75))
     return [
-        dict(mat='1/2" contrachapado exterior', hojas=7,
+        dict(mat='1/2" contrachapado exterior', hojas=hojas_cubierta,
              detalle=f'cubierta {ply_cubierta:.1f} sq ft + cartelas '
                      f'{ply_gussets:.1f} sq ft; fajas de {frac(CUERDA_BAJA)} '
                      f'y {frac(CUERDA_ALTA)}'),
@@ -287,7 +292,7 @@ HERRAJES = [
      f'lecho de {pies(LARGO+8)} x {pies(ANCHO+8)} x {frac(GRAVA)}'),
     (1, 'Geotextil 9\' x 7\'', 'bajo la grava'),
     (1, 'Canalón de 10 ft con bajante, o zanja drenante',
-     'el goteo cae fuera de la plataforma, donde pisan los niños'),
+     'el goteo cae fuera de la plataforma, donde pisan'),
     (1, 'Galón de sellador exterior transparente, bajo en COV',
      'apto para contacto infantil'),
     (10, 'Cubeta de 5 galones con tapa', 'POR EL CLIENTE'),

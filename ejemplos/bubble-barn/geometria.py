@@ -62,7 +62,10 @@ MEDIA_LUZ = ANCHO / 2                            # 36"
 #
 # Los espesores por defecto son de TEJA ARQUITECTONICA (laminada) con caperuza
 # de perfil alto.  Si se pone otra cosa, cambia la flecha: ver tabla_paquetes().
-ESP_TABLERO_CUB = 0.5      # contrachapado
+# OJO: contrachapado en medida REAL, no nominal.  El "1/2\"" estructural mide
+# 15/32 = 0.46875" y el "3/4\"" mide 23/32 = 0.71875".  Si se compra calibrado
+# a 1/2" real, poner 0.5.  Esto mueve la flecha: ver tabla_paquetes().
+ESP_TABLERO_CUB = 0.46875  # contrachapado CDX de 1/2" nominal = 15/32 real
 ESP_FIELTRO = 0.030        # fieltro asfaltico #15 (ASTM D226 tipo I)
 ESP_TEJA = 0.375           # teja arquitectonica en la zona de doble lamina
 ESP_CABALLETE = 0.45       # caperuza de cumbrera de perfil alto
@@ -77,6 +80,13 @@ def canto_cubierta(ply=None, fieltro=None, teja=None, cap=None):
 
 
 CANTO_CUBIERTA = canto_cubierta()
+
+# EL DATO QUE EL PLANO NO PUEDE COMPROBAR SOLO.  La flecha se DESPEJA de los
+# 132", asi que comprobar luego que 84+flecha+canto = 132 es una identidad, no
+# una verificacion: con teja de 3" seguiria "cerrando".  Lo unico que valida la
+# cota es medir el apilado real con calibre y meterlo aqui.
+CANTO_MEDIDO = None          # <- pon aqui el apilado medido, en pulgadas
+TOL_CANTO = 1 / 32           # si difiere mas de esto, hay que recortar cabios
 
 # La cota de arranque (84") es ESTRUCTURAL: canto superior del cordon inferior.
 # La de altura terminada (132") es de ACABADO.  En el ALERO, sobre el faldon
@@ -130,13 +140,13 @@ def resolver_cuerdas(flecha):
             (_cb * flecha - MEDIA_LUZ * _sb) / _det)
 
 
+_PLY = ESP_TABLERO_CUB      # 15/32 real
 PAQUETES = [
-    ('Teja arquitectónica + caperuza de perfil alto  (ESTE PLANO)',
-     0.5, 0.030, 0.375, 0.45),
-    ('Teja arquitectónica gruesa + caperuza de perfil alto',
-     0.5, 0.030, 0.5, 0.45),
-    ('Teja 3-tab + caperuza 3-tab', 0.5, 0.030, 0.25, 0.25),
-    ('Chapa metálica sobre tablero + caballete', 0.5, 0.030, 0.03, 0.5),
+    ('Arquitectónica + caperuza alta  (ESTE PLANO)', _PLY, 0.030, 0.375, 0.45),
+    ('Arquitectónica gruesa + caperuza alta', _PLY, 0.030, 0.5, 0.45),
+    ('3-tab + caperuza 3-tab', _PLY, 0.030, 0.25, 0.25),
+    ('Chapa metálica + caballete', _PLY, 0.030, 0.03, 0.5),
+    ('Igual que este plano, con tablero de 1/2" REAL', 0.5, 0.030, 0.375, 0.45),
 ]
 
 
@@ -152,8 +162,16 @@ def tabla_paquetes():
 
 
 # Cuanto mueve cada 1/16" de espesor de paquete
-SENSIBILIDAD_BAJA = (1 / 16) / math.cos(ANG_ALTO) * 1.30656
-SENSIBILIDAD_ALTA = (1 / 16) / math.cos(ANG_ALTO) * 0.54120
+# CON SIGNO.  Mas paquete -> menos flecha -> el cabio bajo se ACORTA y el
+# alto se ALARGA: van al reves, y el reflejo de acortar los dos es un error.
+_DLB, _DLA = 1.306563, -0.541196          # dLB/dflecha, dLA/dflecha
+SENS_BAJA = -(1 / 16) / math.cos(ANG_ALTO) * _DLB     # tablero, fieltro, teja
+SENS_ALTA = -(1 / 16) / math.cos(ANG_ALTO) * _DLA
+SENS_CAP_BAJA = -(1 / 16) * _DLB          # caperuza: su espesor ya es vertical
+SENS_CAP_ALTA = -(1 / 16) * _DLA
+
+# Arranque que devolveria los cabios IGUALES (exige flecha = media luz)
+ARRANQUE_IGUALADOR = ALTURA_TERMINADA - MEDIA_LUZ - CANTO_CUBIERTA
 
 
 # --- Rectas de canto de los cabios -----------------------------------------
@@ -246,16 +264,30 @@ Z_PATIN_SUP = S4x6[0]                # 3.5"  — patín 4x6 tumbado
 Z_ARRANQUE = ARRANQUE_TECHO          # 84"   — canto sup. del cordón inferior
 Z_VIGA_SUP = Z_ARRANQUE - ANCHO_CABIO        # 80.5" — cara sup. de la carrera
 Z_VIGA_INF = Z_VIGA_SUP - S2x8[1]            # 73.25"
-POSTE_LARGO = Z_VIGA_INF - Z_PATIN_SUP       # 69.75"
+# Entre el patin y la carrera hay DOS chapas que el despiece compra y que la
+# cadena de alturas tiene que descontar, o la cumbrera sube por encima de 132".
+ESP_BASE_POSTE = 0.0598      # base PLANA de 16 ga (NO de separador)
+ESP_CAPITEL = 0.0598         # capitel de 16 ga
+POSTE_LARGO = Z_VIGA_INF - Z_PATIN_SUP - ESP_BASE_POSTE - ESP_CAPITEL
 Z_CUMBRERA = Z_ARRANQUE + FLECHA             # 120" = 10'-0" EXACTOS
 Z_ALERO_MIN = Z_ARRANQUE + ALERO_V_MIN       # bajo la punta del alero
 
 Z_PLATAFORMA = 20.0                          # cara superior del tablero
 CANTO_VIGUETA = S2x6[1]                      # 5.5"
-ESPESOR_TABLERO = 0.75
+ESPESOR_TABLERO = 0.71875   # contrachapado de 3/4" nominal = 23/32 real
 Z_VIGUETA_SUP = Z_PLATAFORMA - ESPESOR_TABLERO   # 19.25"
 Z_VIGUETA_INF = Z_VIGUETA_SUP - CANTO_VIGUETA    # 13.75"
-FONDO_CUBETA = Z_PLATAFORMA - ALTO_CUBETA        # 5.5" (caso peor: borde a ras)
+# Una cubeta de 5 galones no apoya por el borde: se ACUÑA donde su cono
+# alcanza el diámetro del hueco.  Con boca 11.91", fondo 10.33" y alto 14.5"
+# la conicidad es 0.10897 in/in.
+CUBETA_BOCA, CUBETA_FONDO = 11.91, 10.33
+CONICIDAD = (CUBETA_BOCA - CUBETA_FONDO) / ALTO_CUBETA
+CALADO = max(0.0, (CUBETA_BOCA - DIAM_HUECO) / CONICIDAD)   # cuánto se hunde
+Z_BOCA_CUBETA = Z_PLATAFORMA + CALADO                       # borde sobre el suelo
+FONDO_CUBETA_REAL = Z_BOCA_CUBETA - ALTO_CUBETA
+FONDO_CUBETA = Z_PLATAFORMA - ALTO_CUBETA        # caso peor: borde a ras
+# Hueco que dejaría el borde 1" sobre el tablero
+DIAM_PARA_BORDE_A_RAS = CUBETA_BOCA - CONICIDAD * 1.0
 
 # ===========================================================================
 # 5. Postes, carreras y cerchas
@@ -282,6 +314,11 @@ POS_CERCHAS = [S2x4[0] / 2 + i * (LARGO - S2x4[0]) / (N_CERCHAS - 1)
 SEP_CERCHAS = POS_CERCHAS[1] - POS_CERCHAS[0]            # 23.625" O.C.
 VUELO_HASTIAL = 6.0
 LARGO_CUBIERTA = LARGO + 2 * VUELO_HASTIAL               # 108"
+# El entablado se corta de EJE A EJE de las dos cerchas de hastial, para que la
+# junta caiga sobre madera; los vuelos se rematan aparte.  Una faja de 96" no
+# aterriza en ninguna cercha.
+BANDA_CENTRAL = POS_CERCHAS[-1] - POS_CERCHAS[0]         # 94.5"
+BANDA_REMATE = VUELO_HASTIAL + POS_CERCHAS[0]            # 6.75"
 
 # Superficie de cubierta: 4 faldones de cabio + 2 faldas de alero
 DESARROLLO = 2 * (CUERDA_BAJA + CUERDA_ALTA) + 2 * ALERO_VUELO / math.cos(ANG_ALTO)
@@ -352,9 +389,12 @@ LARGOS_BLOQUEO = sorted({round(b - a, 4) for a, b, _ in BLOQUEOS})
 # 7. Viento — al subir a 11 pies el vuelco casi se dobla
 #    (estimacion ASCE 7, Tennessee, V=100 mph, Riesgo I, edificio ABIERTO)
 # ===========================================================================
-V_VIENTO = 100.0                 # mph
-KZ, KD, G = 0.85, 0.85, 0.85
-QZ = 0.00256 * (V_VIENTO ** 2) * KZ * KD         # ~18.5 psf
+# Categoria de Riesgo II (ASCE 7-16 tabla 1.5-1): hay ninos debajo, no es una
+# construccion de bajo riesgo para la vida humana.  Exposicion C, Kzt = 1.0,
+# Ke = 1.0.  Estas son HIPOTESIS DE EMPLAZAMIENTO y van declaradas en la hoja.
+V_VIENTO = 115.0                 # mph, Tennessee, Riesgo II
+KZ, KZT, KD, KE, G = 0.85, 1.0, 0.85, 1.0, 0.85
+QZ = 0.00256 * (V_VIENTO ** 2) * KZ * KZT * KD * KE
 
 # --- peso propio, sumado del despiece real ---------------------------------
 _LIN = {'2x4': 1.28, '2x4PT': 1.60, '2x6PT': 2.50, '2x8PT': 3.40,
@@ -376,19 +416,24 @@ PESO_PROPIO = _peso_propio()
 PESO_CUBETAS = N_CUBETAS * 5 * 8.34              # 417 lb de liquido
 
 # --- levante: depende del area EN PLANTA, no cambia con la altura ----------
+# Combinacion 7 de ASCE 7-16 (2.4.1): 0.6D + 0.6W.  Los dos terminos al MISMO
+# nivel, y G aplicado en los dos sitios.
 CN_LEVANTE = 1.2
 AREA_PLANTA = LARGO_CUBIERTA * (ANCHO + 2 * ALERO_VUELO) / 144.0   # sq ft
-LEVANTE = QZ * CN_LEVANTE * AREA_PLANTA
-RESISTE = 0.6 * PESO_PROPIO                      # 0.6*D, sin contar cubetas
+LEVANTE = 0.6 * QZ * G * CN_LEVANTE * AREA_PLANTA
+RESISTE = 0.6 * PESO_PROPIO                      # 0.6D, sin contar cubetas
 
 # --- vuelco: SI cambia con la altura, y es lo que empeora -------------------
 CF_LATERAL = 1.3
-_A_CUBIERTA_LAT = FLECHA * LARGO_CUBIERTA / 144.0        # faldon visto de lado
+# La silueta vista de costado va del canto BAJO de la cola de alero a la
+# cumbrera ACABADA, no de la flecha: si no, el area de vela sale un 16% corta.
+_A_CUBIERTA_LAT = ((ALTURA_TERMINADA - (Z_ARRANQUE + ALERO_V_MIN))
+                   * LARGO_CUBIERTA / 144.0)
 _A_ALERO_LAT = (CARA_TOPE) * LARGO_CUBIERTA / 144.0      # fascia
 _A_ESTRUCTURA = (4 * POSTE * POSTE_LARGO + LARGO * S2x8[1]
                  + LARGO * (CANTO_VIGUETA + ESPESOR_TABLERO)) / 144.0
 AREA_LATERAL = _A_CUBIERTA_LAT + _A_ALERO_LAT + _A_ESTRUCTURA
-FUERZA_LATERAL = QZ * G * CF_LATERAL * AREA_LATERAL
+FUERZA_LATERAL = 0.6 * QZ * G * CF_LATERAL * AREA_LATERAL
 _BRAZO = ((_A_CUBIERTA_LAT * (Z_ARRANQUE + FLECHA / 2)
            + _A_ALERO_LAT * (Z_ARRANQUE - CARA_TOPE / 2)
            + _A_ESTRUCTURA * (Z_VIGA_INF / 2)) / AREA_LATERAL)
@@ -398,7 +443,16 @@ MOMENTO_ESTABILIZA = RESISTE * (ANCHO / 2) / 12.0        # lb-ft, 0.6D
 ANCLAJES = 4
 ANCLAJE_CAPACIDAD = 3000.0       # lb, anclaje helicoidal de 30"
 # dos anclajes a barlovento, brazo = ancho completo desde la arista de sotavento
-MOMENTO_ANCLAJES = 2 * ANCLAJE_CAPACIDAD * (ANCHO / 12.0)
+# Brazo real: los anclajes van en los postes, retranqueados del canto.
+_BRAZO_ANCLAJE = (ANCHO - (RETRANQUEO_POSTE + POSTE / 2)) / 12.0   # 5.729 ft
+MOMENTO_ANCLAJES = 2 * ANCLAJE_CAPACIDAD * _BRAZO_ANCLAJE
+
+# DESLIZAMIENTO: un anclaje de barrena vertical NO toma cortante.  Hace falta
+# restriccion lateral explicita (anclajes inclinados a 45° en pares opuestos).
+ROZAMIENTO = 0.35 * 0.6 * PESO_PROPIO            # patin sobre grava, generoso
+CORTANTE_BASE = FUERZA_LATERAL
+ANCLAJES_INCLINADOS = 2                          # a 45°, en pares opuestos
+CORTANTE_ANCLAJES = ANCLAJES_INCLINADOS * ANCLAJE_CAPACIDAD * math.sin(math.pi / 4)
 
 # ===========================================================================
 # 7b. Polígonos reales de las piezas de la cercha (para dibujar sin inventar)
@@ -408,7 +462,9 @@ def _esp(p, d):
     return (p[0] + d[0], p[1] + d[1])
 
 
-_OFF_COLA = (-math.sin(ANG_ALTO) * ANCHO_CABIO, -math.cos(ANG_ALTO) * ANCHO_CABIO)
+# La cola lleva las dos testas A PLOMO, asi que su canto inferior es el
+# superior desplazado EN VERTICAL, no perpendicularmente: es un paralelogramo.
+_OFF_COLA = (0.0, -ANCHO_CABIO / math.cos(ANG_ALTO))
 
 
 def piezas_cercha():
@@ -481,11 +537,21 @@ def pies(x, den=16):
 # 9. Autocomprobación
 # ===========================================================================
 def comprobar():
-    """Devuelve (ok, [líneas]).  Falla ruidosamente si algo no cierra."""
+    """Devuelve (ok, [líneas]).  Falla ruidosamente si algo no cierra.
+
+    OJO con lo que una comprobación demuestra.  FLECHA se DESPEJA de los 132",
+    así que verificar después que 84 + FLECHA + CANTO = 132 no prueba nada: es
+    la misma ecuación al revés y seguiría "cerrando" con teja de tres pulgadas.
+    Esas identidades van marcadas [ID] y NO cuentan.  Las que cuentan son las
+    que comparan DOS caminos independientes.
+    """
     fallos, notas = [], []
 
     def check(cond, msg):
         (notas if cond else fallos).append(('OK  ' if cond else 'FALLO ') + msg)
+
+    def ident(msg):
+        notas.append('[ID] ' + msg)
 
     check(abs(2 * (CARRERA_BAJA + CARRERA_ALTA) - ANCHO) < 1e-9,
           f'cierre horizontal 2x(carrera baja+alta) = '
@@ -508,9 +574,32 @@ def comprobar():
           f'en el alero el acabado queda {frac(CANTO_CUBIERTA_ALERO, 32)} sobre la '
           f'linea de arranque (en cumbrera, {frac(CANTO_CUBIERTA, 32)}): las dos '
           f'cotas del cliente son de naturaleza distinta')
-    check(abs(ALTURA_TERMINADA - (Z_ARRANQUE + FLECHA + CANTO_CUBIERTA)) < 1e-9,
-          f'ALTURA TERMINADA = {Z_ARRANQUE + FLECHA + CANTO_CUBIERTA:.6f}" '
-          f'= {pies(ALTURA_TERMINADA)} EXACTOS')
+    ident(f'84 + flecha + canto = {Z_ARRANQUE + FLECHA + CANTO_CUBIERTA:.6f}" '
+          f'— IDENTIDAD: la flecha se despejó de ahí, no demuestra nada')
+
+    # --- lo que SÍ valida la cota de 132": medir el apilado real -----------
+    if CANTO_MEDIDO is None:
+        notas.append('PENDIENTE  CANTO_MEDIDO sin rellenar: la cota de '
+                     f'{pies(ALTURA_TERMINADA)} está SIN VERIFICAR hasta medir el '
+                     f'apilado real con calibre (esperado {CANTO_CUBIERTA:.4f}")')
+    else:
+        d = CANTO_MEDIDO - CANTO_CUBIERTA
+        check(abs(d) <= TOL_CANTO,
+              f'apilado medido {CANTO_MEDIDO:.4f}" contra {CANTO_CUBIERTA:.4f}" '
+              f'calculado: {d:+.4f}". Corrige el cabio bajo {-d*_DLB:+.3f}" y el '
+              f'alto {-d*_DLA:+.3f}"')
+
+    # --- dibujo contra cota: dos caminos independientes --------------------
+    _pz = piezas_cercha()
+    check(abs(min(v for _, v in _pz['cola_d']) - ALERO_V_MIN) < 1e-9,
+          f'el polígono dibujado de la cola de alero baja hasta v={ALERO_V_MIN:.4f}", '
+          f'igual que la cota publicada {pies(Z_ALERO_MIN)}')
+    check(abs(max(v for _, v in _pz['cabio_alto_d']) - FLECHA) < 1e-9,
+          'el polígono del cabio alto llega justo a la cumbrera cotada')
+    check(all(abs(math.dist(_pz['cabio_bajo_d'][0], _pz['cabio_bajo_d'][1])
+                  - CUERDA_BAJA) < 1e-9 for _ in (0,)),
+          f'el canto superior dibujado del cabio bajo mide {CUERDA_BAJA:.6f}", '
+          f'igual que la cuerda resuelta')
     # canto inferior del cabio bajo, entre el corte de asiento (v=0) y la rodilla
     (ix, iy), (iux, iuy) = _INT_BAJO
     t_asiento = (0 - iy) / iuy
@@ -599,6 +688,11 @@ def comprobar():
     check(MOMENTO_VUELCO > MOMENTO_ESTABILIZA,
           f'vuelco {MOMENTO_VUELCO:.0f} lb-ft > estabilizador {MOMENTO_ESTABILIZA:.0f} '
           f'lb-ft: sin anclar VUELCA')
+    check(CORTANTE_ANCLAJES + ROZAMIENTO > 1.5 * CORTANTE_BASE,
+          f'DESLIZAMIENTO: cortante en la base {CORTANTE_BASE:.0f} lb; el rozamiento '
+          f'del patín sobre grava sólo da {ROZAMIENTO:.0f} lb, así que {ANCLAJES_INCLINADOS} '
+          f'de los anclajes van INCLINADOS a 45° en pares opuestos '
+          f'({CORTANTE_ANCLAJES:.0f} lb)')
     check(MOMENTO_ANCLAJES + MOMENTO_ESTABILIZA > 1.5 * MOMENTO_VUELCO,
           f'con anclajes {MOMENTO_ANCLAJES + MOMENTO_ESTABILIZA:.0f} lb-ft > '
           f'1.5 x vuelco ({1.5*MOMENTO_VUELCO:.0f} lb-ft)')
