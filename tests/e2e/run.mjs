@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
 const PORT = 4183;
-const SUITES = ['smoke.mjs', 'tools.mjs', 'ux.mjs'];
+const SUITES = ['smoke.mjs', 'tools.mjs', 'ux.mjs', 'angles.mjs'];
 
 function run(cmd, args, opts = {}) {
   return new Promise((ok, fail) => {

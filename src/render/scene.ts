@@ -10,6 +10,7 @@ import { Vec3, v3 } from '../core/math/vec';
 import { Mat4, IDENTITY, matMul, transformPoint, transformNormal, matFlipsOrientation } from '../core/math/mat';
 import { Box3, emptyBox, expandBox } from '../core/math/geom';
 import { triangulateFace } from '../core/topology/triangulate';
+import { formatAngle } from '../core/units';
 import { THEME, LINE_WIDTH, hexToInt } from './theme';
 import { Selection } from '../core/selection';
 
@@ -45,7 +46,7 @@ export interface PickVertex {
 export interface SceneLabel {
   text: string;
   position: Vec3;
-  kind: 'dimension';
+  kind: 'dimension' | 'angle';
   id: Id;
 }
 
@@ -280,6 +281,7 @@ export class SceneBuilder {
 
     // --- Cotas y guías (viven en el espacio raíz) --------------------------
     buildDimensions(model, guides, pick);
+    buildAngleDimensions(model, guides, pick);
     buildGuides(model, guides);
 
     this.pick = pick;
@@ -682,6 +684,66 @@ function buildDimensions(model: Model, batch: EdgeBatch, pick: PickCache): void 
       id: dim.id,
     });
   }
+}
+
+/**
+ * Dibuja las cotas angulares: los dos lados hasta el radio del arco, el arco
+ * que va de uno a otro y el texto en su punto medio. El arco se traza en el
+ * plano que forman los dos lados, así que se lee bien desde cualquier vista en
+ * la que se vea el ángulo.
+ */
+function buildAngleDimensions(model: Model, batch: EdgeBatch, pick: PickCache): void {
+  const color = colorOf(THEME.dimension);
+  for (const dim of model.angleDimensions.values()) {
+    const u = subV(dim.a, dim.vertex);
+    const w = subV(dim.b, dim.vertex);
+    const lu = Math.hypot(u.x, u.y, u.z);
+    const lw = Math.hypot(w.x, w.y, w.z);
+    if (lu <= 1e-12 || lw <= 1e-12) continue;
+
+    const e1 = { x: u.x / lu, y: u.y / lu, z: u.z / lu };
+    const f = { x: w.x / lw, y: w.y / lw, z: w.z / lw };
+    const cosA = Math.max(-1, Math.min(1, e1.x * f.x + e1.y * f.y + e1.z * f.z));
+    const total = Math.acos(cosA);
+
+    // Segunda dirección de la base, perpendicular a la primera dentro del plano.
+    const perpRaw = { x: f.x - e1.x * cosA, y: f.y - e1.y * cosA, z: f.z - e1.z * cosA };
+    const lp = Math.hypot(perpRaw.x, perpRaw.y, perpRaw.z);
+    const r = dim.radius;
+
+    const at = (t: number) => {
+      const c = Math.cos(t);
+      const s = lp > 1e-12 ? Math.sin(t) : 0;
+      return {
+        x: dim.vertex.x + (e1.x * c + (lp > 1e-12 ? perpRaw.x / lp : 0) * s) * r,
+        y: dim.vertex.y + (e1.y * c + (lp > 1e-12 ? perpRaw.y / lp : 0) * s) * r,
+        z: dim.vertex.z + (e1.z * c + (lp > 1e-12 ? perpRaw.z / lp : 0) * s) * r,
+      };
+    };
+
+    // Lados, un poco más largos que el arco para que se vea el vértice.
+    pushSeg(batch, dim.vertex, at(0), color);
+    pushSeg(batch, dim.vertex, at(total), color);
+
+    const steps = Math.max(6, Math.round((total / Math.PI) * 48));
+    let prev = at(0);
+    for (let i = 1; i <= steps; i++) {
+      const p = at((total * i) / steps);
+      pushSeg(batch, prev, p, color);
+      prev = p;
+    }
+
+    pick.labels.push({
+      text: dim.text || formatAngle(total, model.units),
+      position: at(total / 2),
+      kind: 'angle',
+      id: dim.id,
+    });
+  }
+}
+
+function subV(a: Vec3, b: Vec3): Vec3 {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
 }
 
 /** Dibuja las guías de construcción con trazo discontinuo. */

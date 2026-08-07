@@ -13,6 +13,7 @@ import {
   EraserTool, PaintTool, TapeMeasureTool, DimensionTool, ProtractorTool,
   OrbitTool, PanTool, ZoomTool,
 } from '../tools/utility';
+import { AngleTool, selectionAngleSummary } from '../tools/angle';
 import { icon } from './icons';
 import { THEME } from '../render/theme';
 import { Id } from '../core/model/types';
@@ -36,6 +37,11 @@ import { Form3DApi } from '../app/api';
 import { ContextMenu } from './contextmenu';
 import { SOLIDS } from '../core/ops/solids';
 import { openSolidDialog } from './solids-dialog';
+import { BooleanOp, BOOLEAN_LABEL, booleanInstances, SolidOpResult } from '../core/ops/boolean';
+import { intersectFaceSets } from '../core/ops/intersect';
+import { rebuildFaces, collectCandidatePlanes } from '../core/topology/rebuild';
+import { measureInstance, analyseJoint, JointReport, Member } from '../core/measure/member';
+import { describeJoint, describeMember, jointLines } from '../core/measure/report';
 import { CameraState } from '../render/camera';
 
 interface ToolEntry {
@@ -140,6 +146,15 @@ export class AppUI {
         label: def.label,
         action: () => openSolidDialog(this.editor, def),
       }))),
+      this.buildMenu('Sólidos', [
+        { label: 'Unir', action: () => this.doBoolean('union') },
+        { label: 'Restar', action: () => this.doBoolean('subtract') },
+        { label: 'Intersecar', action: () => this.doBoolean('intersect') },
+        { sep: true },
+        { label: 'Intersecar caras', action: () => this.doIntersectFaces() },
+        { sep: true },
+        { label: 'Medir la unión', action: () => this.doMeasureJoint() },
+      ]),
       this.buildMenu('Ver', [
         { label: 'Encajar todo', keys: 'Mayús+Z', action: () => this.editor.zoomExtents() },
         {
@@ -397,6 +412,7 @@ export class AppUI {
       { tool: new TapeMeasureTool(e), iconName: 'tape', shortcut: 't', group: 4 },
       { tool: new DimensionTool(e), iconName: 'dimension', shortcut: 'd', group: 4 },
       { tool: new ProtractorTool(e), iconName: 'protractor', group: 4 },
+      { tool: new AngleTool(e), iconName: 'angle', shortcut: 'n', group: 4 },
       { tool: new OrbitTool(e), iconName: 'orbit', shortcut: 'o', group: 5 },
       { tool: new PanTool(e), iconName: 'pan', shortcut: 'h', group: 5 },
       { tool: new ZoomTool(e), iconName: 'zoom', shortcut: 'z', group: 5 },
@@ -730,6 +746,94 @@ export class AppUI {
     });
   }
 
+  // -------------------------------------------------------------------------
+  // Sólidos
+  // -------------------------------------------------------------------------
+
+  /**
+   * Une, resta o interseca los dos grupos seleccionados. Al terminar enseña el
+   * informe de la unión, que es lo que hace falta para cortar las piezas.
+   */
+  private doBoolean(op: BooleanOp): void {
+    const sel = this.editor.selection;
+    if (sel.instances.size !== 2) {
+      this.editor.setStatus(`${BOOLEAN_LABEL[op]}: selecciona exactamente dos grupos.`);
+      return;
+    }
+    const [a, b] = [...sel.instances];
+    const geo = this.editor.geometry;
+
+    let result: SolidOpResult | null = null;
+    this.editor.edit(BOOLEAN_LABEL[op], () => {
+      result = booleanInstances(this.editor.model, geo, a, b, op);
+      clearSelection(sel);
+      if (result.ok && result.instanceId !== null) sel.instances.add(result.instanceId);
+    });
+
+    const r = result as SolidOpResult | null;
+    if (!r) return;
+    if (!r.ok) {
+      this.editor.setStatus(`${BOOLEAN_LABEL[op]}: ${r.message}`);
+      this.editor.undo();
+      return;
+    }
+
+    const extra = r.solid ? '' : ' El resultado no es un sólido cerrado.';
+    this.editor.setStatus(`${BOOLEAN_LABEL[op]}: hecho.${extra}`);
+    if (r.joint) this.showJointReport(r.joint, r.members);
+  }
+
+  /**
+   * Inserta las aristas donde se cruzan las caras seleccionadas con el resto
+   * del contexto, sin borrar nada: es el paso previo a recortar a mano.
+   */
+  private doIntersectFaces(): void {
+    const geo = this.editor.geometry;
+    const sel = this.editor.selection;
+    const selected = sel.faces.size > 0 ? [...sel.faces] : [...geo.faces.keys()];
+    if (selected.length === 0) {
+      this.editor.setStatus('No hay caras con las que intersecar.');
+      return;
+    }
+    const others = [...geo.faces.keys()].filter((f) => !selected.includes(f));
+    const target = others.length > 0 ? others : selected;
+
+    let created = 0;
+    this.editor.edit('Intersecar caras', () => {
+      const r = intersectFaceSets(geo, selected, target);
+      created = r.edges.length;
+      if (created > 0) {
+        rebuildFaces(geo, collectCandidatePlanes(geo, r.edges), { newEdges: new Set(r.edges) });
+      }
+    });
+    this.editor.setStatus(created > 0
+      ? `Intersecar caras: ${created} arista(s) nuevas.`
+      : 'Intersecar caras: no hay cruces.');
+  }
+
+  /** Informe de la unión entre las dos piezas seleccionadas, sin modificarlas. */
+  private doMeasureJoint(): void {
+    const geo = this.editor.geometry;
+    const sel = this.editor.selection;
+    if (sel.instances.size === 2) {
+      const [a, b] = [...sel.instances];
+      const ma = measureInstance(this.editor.model, geo, a);
+      const mb = measureInstance(this.editor.model, geo, b);
+      if (ma && mb) {
+        this.showJointReport(analyseJoint(ma, mb), [ma, mb]);
+        return;
+      }
+    }
+    this.editor.setStatus('Medir la unión: selecciona dos grupos.');
+  }
+
+  private showJointReport(joint: JointReport, members: [Member | null, Member | null]): void {
+    const lines = jointLines(joint, members, this.editor.units);
+    const html = lines.map((l) => row(l.label, escapeHtml(l.value))).join('');
+    this.showModal('Unión entre piezas', html);
+    this.editor.setStatus(describeJoint(joint, this.editor.units));
+  }
+
   private newModel(): void {
     if (!window.confirm('¿Empezar un modelo nuevo? Se perderán los cambios no guardados.')) return;
     AutoSave.clear();
@@ -873,6 +977,27 @@ export class AppUI {
       }
     }
 
+    // Ángulos de la selección: diedro de una arista, ángulo entre dos aristas
+    // o entre dos caras, y unión completa entre dos piezas.
+    const angle = selectionAngleSummary(
+      geo, [...sel.edges], [...sel.faces], units,
+    );
+    if (angle) rows.push(row('Ángulo', escapeHtml(angle)));
+
+    if (sel.instances.size === 2) {
+      const [ia, ib] = [...sel.instances];
+      const ma = measureInstance(this.editor.model, geo, ia);
+      const mb = measureInstance(this.editor.model, geo, ib);
+      if (ma && mb) {
+        rows.push(row('Pieza 1', escapeHtml(describeMember(ma, units))));
+        rows.push(row('Pieza 2', escapeHtml(describeMember(mb, units))));
+        rows.push(row('Unión', escapeHtml(describeJoint(analyseJoint(ma, mb), units))));
+      }
+    } else if (sel.instances.size === 1) {
+      const m = measureInstance(this.editor.model, geo, [...sel.instances][0]);
+      if (m) rows.push(row('Pieza', escapeHtml(describeMember(m, units))));
+    }
+
     rows.push(row('Selección', escapeHtml(this.editor.selectionSummary())));
     this.infoBody.innerHTML = rows.join('');
   }
@@ -926,7 +1051,7 @@ export class AppUI {
           d.style.display = 'none';
           continue;
         }
-        const dim = this.editor.model.dimensions.get(label.id);
+        const dim = label.kind === 'dimension' ? this.editor.model.dimensions.get(label.id) : undefined;
         const text = label.text || (dim
           ? formatLength(dist3(dim.a, dim.b), this.editor.units)
           : '');
@@ -995,6 +1120,13 @@ export class AppUI {
             cerrado se convierte en una cara nueva que también puedes empujar.</li>
         <li>Usa <kbd>D</kbd> para acotar y <kbd>T</kbd> para medir.</li>
         <li><kbd>Ctrl+G</kbd> agrupa lo seleccionado; doble clic entra en el grupo.</li>
+        <li><kbd>N</kbd> es la herramienta Ángulo: señala una arista y verás su
+            diedro; elige dos aristas, dos caras o dos piezas y te dará el
+            ángulo, y en el caso de dos piezas también el inglete y el bisel con
+            que hay que cortar cada una.</li>
+        <li>Con dos grupos seleccionados, <b>Sólidos ▸ Unir</b> los convierte en
+            una sola pieza y enseña el informe de la unión. También hay
+            <b>Restar</b> e <b>Intersecar</b>.</li>
       </ol>
       <p style="color:var(--text-dim)">Todas las medidas se escriben en el cuadro inferior derecho.
       Acepta <b>1200</b>, <b>1.2m</b>, <b>120cm</b> y también <b>5' 6"</b>.</p>

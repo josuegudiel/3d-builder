@@ -13,9 +13,13 @@ import {
 import {
   measureMember, measureShape, analyseJoint, nominalSection, Member, membersTouch,
 } from '../src/core/measure/member';
-import { booleanSolids } from '../src/core/ops/boolean';
+import { booleanSolids, booleanInstances, bakeInto } from '../src/core/ops/boolean';
 import { intersectFaceSets } from '../src/core/ops/intersect';
-import { METERS_PER } from '../src/core/units';
+import { METERS_PER, DEFAULT_UNITS } from '../src/core/units';
+import { Model } from '../src/core/model/model';
+import { matTranslation, matRotation, IDENTITY } from '../src/core/math/mat';
+import { serializeToJSON, deserializeModel } from '../src/core/io/serialize';
+import { describeJoint, describeMember, jointLines } from '../src/core/measure/report';
 
 // ---------------------------------------------------------------------------
 // Utilidades
@@ -636,6 +640,18 @@ describe('operaciones booleanas', () => {
     expect(isSolid(geo, r.faces)).toBe(true);
   });
 
+  it('mantiene intacta la geometría ajena a los planos implicados', () => {
+    const geo = newGeometry();
+    const a = box(geo, v3(0, 0, 0), v3(1, 1, 1));
+    const b = box(geo, v3(0.5, 0.5, 0.5), v3(1.5, 1.5, 1.5));
+    // Una cara suelta, lejos y en un plano que no participa.
+    const lejos = addPolygonFace(geo, [
+      v3(10, 10, 10), v3(11, 10, 10.5), v3(11, 11, 10.5), v3(10, 11, 10),
+    ])!;
+    booleanSolids(geo, a, b, 'union');
+    expect(geo.faces.has(lejos)).toBe(true);
+  });
+
   it('une dos tablas en escuadra y mantiene el volumen', () => {
     const geo = newGeometry();
     const a = box(geo, v3(0, 0, 0), v3(2, 0.09, 0.04));
@@ -650,5 +666,181 @@ describe('operaciones booleanas', () => {
       2 * 0.09 * 0.04 + 0.09 * 2 * 0.04 - solapa,
       1e-12,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Operar sobre grupos
+// ---------------------------------------------------------------------------
+
+/** Crea un grupo con una caja dentro y devuelve su instancia. */
+function boxGroup(model: Model, min: Vec3, max: Vec3, transform = IDENTITY, name = ''): Id {
+  const def = model.createDefinition('group', name || 'Pieza');
+  box(def.geometry, min, max);
+  const id = model.rootGeometry.addInstance({
+    definitionId: def.id,
+    transform,
+    name,
+    materialId: null,
+    hidden: false,
+    locked: false,
+  });
+  model.recountInstances();
+  return id;
+}
+
+describe('booleanas entre grupos', () => {
+  it('une dos grupos en uno solo con el volumen correcto', () => {
+    const model = new Model();
+    const a = boxGroup(model, v3(0, 0, 0), v3(4, 1, 1), IDENTITY, 'larguero');
+    const b = boxGroup(model, v3(1, -2, 0), v3(2, 3, 1), IDENTITY, 'travesaño');
+    const r = booleanInstances(model, model.rootGeometry, a, b, 'union');
+
+    expect(r.ok).toBe(true);
+    expect(r.solid).toBe(true);
+    expect(r.instanceId).not.toBeNull();
+    // Los dos grupos originales desaparecen y queda uno.
+    expect(model.rootGeometry.instances.size).toBe(1);
+
+    const inst = model.rootGeometry.instances.get(r.instanceId!)!;
+    const def = model.definitions.get(inst.definitionId)!;
+    closeTo(Math.abs(shellVolume(def.geometry, def.geometry.faces.keys())), 8, 1e-9);
+  });
+
+  it('aplica la transformación de cada grupo antes de operar', () => {
+    const model = new Model();
+    const a = boxGroup(model, v3(0, 0, 0), v3(2, 1, 1));
+    // La misma caja desplazada 1 en X: unidas dan una barra de 3 de largo.
+    const b = boxGroup(model, v3(0, 0, 0), v3(2, 1, 1), matTranslation(v3(1, 0, 0)));
+    const r = booleanInstances(model, model.rootGeometry, a, b, 'union');
+    expect(r.ok).toBe(true);
+    const def = model.definitions.get(
+      model.rootGeometry.instances.get(r.instanceId!)!.definitionId,
+    )!;
+    closeTo(Math.abs(shellVolume(def.geometry, def.geometry.faces.keys())), 3, 1e-9);
+    expect(def.geometry.faces.size).toBe(6);
+  });
+
+  it('mide la unión de dos piezas giradas', () => {
+    const model = new Model();
+    const a = boxGroup(model, v3(0, 0, 0), v3(2, 0.09, 0.04));
+    const b = boxGroup(
+      model, v3(0, 0, 0), v3(2, 0.09, 0.04),
+      matRotation(v3(0, 0, 1), toRadians(120)),
+    );
+    const j = booleanInstances(model, model.rootGeometry, a, b, 'union').joint;
+    expect(j).not.toBeNull();
+    closeTo(DEG(j!.angle), 120, 1e-6);
+    closeTo(Math.abs(DEG(j!.cuts[0].miter)), 30, 1e-6);
+    closeTo(Math.abs(DEG(j!.cuts[1].miter)), 30, 1e-6);
+  });
+
+  it('rechaza operar sobre un solo grupo', () => {
+    const model = new Model();
+    const a = boxGroup(model, v3(0, 0, 0), v3(1, 1, 1));
+    const r = booleanInstances(model, model.rootGeometry, a, a, 'union');
+    expect(r.ok).toBe(false);
+    expect(model.rootGeometry.instances.size).toBe(1);
+  });
+
+  it('copia una definición anidada con su transformación compuesta', () => {
+    const model = new Model();
+    const inner = model.createDefinition('group', 'interior');
+    box(inner.geometry, v3(0, 0, 0), v3(1, 1, 1));
+    const outer = model.createDefinition('group', 'exterior');
+    outer.geometry.addInstance({
+      definitionId: inner.id,
+      transform: matTranslation(v3(5, 0, 0)),
+      name: '', materialId: null, hidden: false, locked: false,
+    });
+
+    const target = newGeometry();
+    const out = new Set<Id>();
+    bakeInto(model, target, outer.id, matTranslation(v3(0, 3, 0)), out, new Set());
+    expect(out.size).toBe(6);
+    // La caja acaba en (5, 3, 0)…(6, 4, 1).
+    expect(target.findVertexAt(v3(5, 3, 0))).not.toBeNull();
+    expect(target.findVertexAt(v3(6, 4, 1))).not.toBeNull();
+  });
+
+  it('la instancia resultante hereda una definición nueva y no la de origen', () => {
+    const model = new Model();
+    const a = boxGroup(model, v3(0, 0, 0), v3(1, 1, 1));
+    const b = boxGroup(model, v3(2, 2, 2), v3(3, 3, 3));
+    const defA = model.rootGeometry.instances.get(a)!.definitionId;
+    const r = booleanInstances(model, model.rootGeometry, a, b, 'union');
+    const newDef = model.rootGeometry.instances.get(r.instanceId!)!.definitionId;
+    expect(newDef).not.toBe(defA);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cotas angulares y textos
+// ---------------------------------------------------------------------------
+
+describe('cotas angulares', () => {
+  it('se guardan y se recuperan del archivo', () => {
+    const model = new Model();
+    const id = model.addAngleDimension(v3(0, 0, 0), v3(1, 0, 0), v3(0, 1, 0));
+    const back = deserializeModel(serializeToJSON(model));
+    const dim = back.angleDimensions.get(id);
+    expect(dim).toBeDefined();
+    closeTo(dim!.a.x, 1, 1e-12);
+    closeTo(dim!.b.y, 1, 1e-12);
+    expect(back.angleDimensions.size).toBe(1);
+  });
+
+  it('el radio por defecto cabe dentro del ángulo', () => {
+    const model = new Model();
+    const id = model.addAngleDimension(v3(0, 0, 0), v3(2, 0, 0), v3(0, 0.5, 0));
+    const dim = model.angleDimensions.get(id)!;
+    expect(dim.radius).toBeGreaterThan(0);
+    expect(dim.radius).toBeLessThanOrEqual(0.5);
+  });
+
+  it('un archivo antiguo sin cotas angulares se lee igual', () => {
+    const model = new Model();
+    const raw = JSON.parse(serializeToJSON(model));
+    delete raw.angleDimensions;
+    const back = deserializeModel(JSON.stringify(raw));
+    expect(back.angleDimensions.size).toBe(0);
+  });
+});
+
+describe('textos de las medidas', () => {
+  it('describe una esquina en escuadra', () => {
+    const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(1, 0, 0), 2);
+    const b = member(v3(0, 1, 0), v3(0, 0, 1), v3(0, 1, 0), 2);
+    const text = describeJoint(analyseJoint(a, b), DEFAULT_UNITS);
+    expect(text).toContain('Esquina');
+    expect(text).toContain('90');
+    expect(text).toContain('inglete 45');
+    expect(text).toContain('en las dos piezas');
+  });
+
+  it('nombra la escuadría de la pieza', () => {
+    const geo = newGeometry();
+    const faces = box(geo, v3(0, 0, 0), v3(2.4, 3.5 * METERS_PER.in, 1.5 * METERS_PER.in));
+    const m = measureMember(geo, faces)!;
+    expect(describeMember(m, DEFAULT_UNITS)).toContain('2×4');
+  });
+
+  it('el informe detallado incluye el corte de las dos piezas', () => {
+    const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(1, 0, 0), 2);
+    const b = member(v3(0, 1, 0), v3(0, 0, 1), v3(0, 1, 0), 2);
+    const lines = jointLines(analyseJoint(a, b), [a, b], DEFAULT_UNITS);
+    const labels = lines.map((l) => l.label);
+    expect(labels).toContain('Ángulo entre piezas');
+    expect(labels).toContain('Pieza 1 · corte');
+    expect(labels).toContain('Pieza 2 · corte');
+    expect(lines.find((l) => l.label === 'Pieza 1 · corte')!.value).toContain('inglete');
+  });
+
+  it('avisa cuando el corte es compuesto', () => {
+    const a = member(v3(1, 0, 0), v3(0, 0, 1), v3(1, 0, 0), 2);
+    const dir = normalize(v3(-0.6, 0.6, 0.5));
+    const b = member(dir, normalize(v3(0, -0.5, 0.8)), mul(dir, 1), 2);
+    const text = describeJoint(analyseJoint(a, b), DEFAULT_UNITS);
+    expect(text).toContain('bisel');
   });
 });

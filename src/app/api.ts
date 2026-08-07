@@ -20,7 +20,20 @@ import { exportOBJ } from '../core/io/obj';
 import { exportSTLAscii, exportSTLBinary } from '../core/io/stl';
 import { parseLength, formatLength, formatArea, formatVolume } from '../core/units';
 import { StandardView } from '../render/camera';
+import { IDENTITY } from '../core/math/mat';
 import { selectAll, clearSelection } from '../core/selection';
+import {
+  toDegrees, dihedralAngle, angleBetweenEdges, edgeDirectionAngle, planeAngle, cutAngles,
+} from '../core/measure/angles';
+import {
+  Member, JointReport, measureInstance, measureMember, analyseJoint,
+} from '../core/measure/member';
+import { describeJoint, describeMember } from '../core/measure/report';
+import {
+  BooleanOp, BOOLEAN_LABEL, booleanInstances, booleanSolids, SolidOpResult,
+} from '../core/ops/boolean';
+import { intersectFaceSets } from '../core/ops/intersect';
+import { rebuildFaces, collectCandidatePlanes } from '../core/topology/rebuild';
 
 /**
  * Interfaz de automatización.
@@ -163,6 +176,28 @@ export class Form3DApi {
     return this.run('Explotar', () => explodeInstance(this.model, this.geometry, instanceId));
   }
 
+  /** Identificadores de los grupos del contexto activo, en orden de creación. */
+  instances(): Id[] {
+    return [...this.geometry.instances.keys()];
+  }
+
+  /** Devuelve la instancia a su posición original (transformación identidad). */
+  resetTransform(instanceId: Id): void {
+    this.run('Colocar en el origen', () => {
+      const inst = this.geometry.instances.get(instanceId);
+      if (inst) inst.transform = IDENTITY;
+    });
+  }
+
+  /** Volumen del sólido que hay dentro de un grupo. */
+  groupVolume(instanceId: Id): number {
+    const inst = this.geometry.instances.get(instanceId);
+    if (!inst) return 0;
+    const def = this.model.definitions.get(inst.definitionId);
+    if (!def) return 0;
+    return Math.abs(shellVolume(def.geometry, def.geometry.faces.keys()));
+  }
+
   /** Catálogo de sólidos paramétricos disponibles. */
   get solids(): SolidDefinition[] {
     return SOLIDS;
@@ -176,6 +211,148 @@ export class Form3DApi {
     for (const param of def.params) full[param.key] = values[param.key] ?? param.defaultValue;
     insertSolid(this.editor, def, full);
     return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Ángulos y uniones
+  // -------------------------------------------------------------------------
+
+  /** Radianes → grados, para leer los resultados con comodidad. */
+  degrees(radians: number): number {
+    return toDegrees(radians);
+  }
+
+  /** Ángulo diedro de una arista, en grados. null si no tiene dos caras. */
+  dihedral(edgeId: Id): number | null {
+    const d = dihedralAngle(this.geometry, edgeId);
+    return d ? toDegrees(d.angle) : null;
+  }
+
+  /** Ángulo entre dos aristas, en grados. */
+  angleBetweenEdges(a: Id, b: Id): number | null {
+    const r = angleBetweenEdges(this.geometry, a, b);
+    if (r) return toDegrees(r.angle);
+    const d = edgeDirectionAngle(this.geometry, a, b);
+    return d === null ? null : toDegrees(d);
+  }
+
+  /** Ángulo entre los planos de dos caras, en grados. */
+  angleBetweenFaces(a: Id, b: Id): number | null {
+    const fa = this.geometry.faces.get(a);
+    const fb = this.geometry.faces.get(b);
+    if (!fa || !fb) return null;
+    return toDegrees(planeAngle(fa.plane, fb.plane));
+  }
+
+  /** Inglete y bisel, en grados, de un plano de corte sobre una pieza. */
+  cutAngles(cutNormal: Vec3, axis: Vec3, faceNormal: Vec3) {
+    const c = cutAngles(cutNormal, { axis, faceNormal });
+    return {
+      miter: toDegrees(c.miter),
+      bevel: toDegrees(c.bevel),
+      toAxis: toDegrees(c.toAxis),
+      compound: c.compound,
+    };
+  }
+
+  /** Medidas de la pieza que forma un grupo. */
+  member(instanceId: Id): Member | null {
+    return measureInstance(this.model, this.geometry, instanceId);
+  }
+
+  /** Medidas de la pieza que forman unas caras sueltas. */
+  memberOfFaces(faces: Id[]): Member | null {
+    return measureMember(this.geometry, faces);
+  }
+
+  /** Análisis de la unión entre dos grupos, con los ángulos en radianes. */
+  joint(instanceA: Id, instanceB: Id): JointReport | null {
+    const a = measureInstance(this.model, this.geometry, instanceA);
+    const b = measureInstance(this.model, this.geometry, instanceB);
+    return a && b ? analyseJoint(a, b) : null;
+  }
+
+  /** El mismo análisis en grados, cómodo para comprobar resultados. */
+  jointAngles(instanceA: Id, instanceB: Id) {
+    const j = this.joint(instanceA, instanceB);
+    if (!j) return null;
+    return {
+      kind: j.kind,
+      angle: toDegrees(j.angle),
+      supplement: toDegrees(j.supplement),
+      axisAngle: toDegrees(j.axisAngle),
+      gap: j.gap,
+      sameFacePlane: j.sameFacePlane,
+      cuts: j.cuts.map((c) => ({
+        miter: toDegrees(Math.abs(c.miter)),
+        bevel: toDegrees(Math.abs(c.bevel)),
+        toAxis: toDegrees(c.toAxis),
+        atEnd: c.end !== null,
+      })),
+    };
+  }
+
+  /** Texto de la unión, tal como lo lee el usuario en la barra de estado. */
+  jointText(instanceA: Id, instanceB: Id): string | null {
+    const j = this.joint(instanceA, instanceB);
+    return j ? describeJoint(j, this.editor.units) : null;
+  }
+
+  /** Descripción de una pieza («2×4 · 2,40 m»). */
+  memberText(instanceId: Id): string | null {
+    const m = this.member(instanceId);
+    return m ? describeMember(m, this.editor.units) : null;
+  }
+
+  /** Coloca una cota angular permanente. */
+  angleDimension(vertex: Vec3, a: Vec3, b: Vec3, radius = 0): Id {
+    return this.run('Cota angular', () =>
+      this.model.addAngleDimension(vertex, a, b, radius));
+  }
+
+  // -------------------------------------------------------------------------
+  // Sólidos
+  // -------------------------------------------------------------------------
+
+  /** Une dos grupos en uno solo. Devuelve la instancia resultante. */
+  union(instanceA: Id, instanceB: Id): SolidOpResult {
+    return this.solidOp(instanceA, instanceB, 'union');
+  }
+
+  subtract(instanceA: Id, instanceB: Id): SolidOpResult {
+    return this.solidOp(instanceA, instanceB, 'subtract');
+  }
+
+  intersectSolids(instanceA: Id, instanceB: Id): SolidOpResult {
+    return this.solidOp(instanceA, instanceB, 'intersect');
+  }
+
+  private solidOp(a: Id, b: Id, op: BooleanOp): SolidOpResult {
+    return this.run(BOOLEAN_LABEL[op], () => {
+      const r = booleanInstances(this.model, this.geometry, a, b, op);
+      clearSelection(this.selection);
+      if (r.ok && r.instanceId !== null) this.selection.instances.add(r.instanceId);
+      return r;
+    });
+  }
+
+  /** Operación booleana entre dos conjuntos de caras del contexto activo. */
+  booleanFaces(facesA: Id[], facesB: Id[], op: BooleanOp) {
+    return this.run(BOOLEAN_LABEL[op], () =>
+      booleanSolids(this.geometry, facesA, facesB, op));
+  }
+
+  /** Inserta las aristas donde se cortan dos conjuntos de caras. */
+  intersectFaces(facesA: Id[], facesB: Id[]): number {
+    return this.run('Intersecar caras', () => {
+      const r = intersectFaceSets(this.geometry, facesA, facesB);
+      if (r.edges.length > 0) {
+        rebuildFaces(this.geometry, collectCandidatePlanes(this.geometry, r.edges), {
+          newEdges: new Set(r.edges),
+        });
+      }
+      return r.edges.length;
+    });
   }
 
   // -------------------------------------------------------------------------
