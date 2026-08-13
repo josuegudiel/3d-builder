@@ -103,6 +103,15 @@ export interface DimensionData {
   text: string;
 }
 
+export interface AngleDimensionData {
+  id: Id;
+  vertex: [number, number, number];
+  a: [number, number, number];
+  b: [number, number, number];
+  radius: number;
+  text: string;
+}
+
 export interface GuideData {
   id: Id;
   kind: 'line' | 'point';
@@ -125,6 +134,8 @@ export interface ModelFile {
   definitions: DefinitionData[];
   /** Cotas del modelo (opcional en archivos antiguos). */
   dimensions: DimensionData[];
+  /** Cotas angulares (opcional en archivos antiguos). */
+  angleDimensions: AngleDimensionData[];
   /** Guías de construcción (opcional en archivos antiguos). */
   guides: GuideData[];
 }
@@ -218,6 +229,14 @@ export function serializeModel(model: Model): ModelFile {
       offset: vecToTuple(d.offset),
       text: d.text,
     })),
+    angleDimensions: [...model.angleDimensions.values()].map((d) => ({
+      id: d.id,
+      vertex: vecToTuple(d.vertex),
+      a: vecToTuple(d.a),
+      b: vecToTuple(d.b),
+      radius: d.radius,
+      text: d.text,
+    })),
     guides: [...model.guides.values()].map((g) => ({
       id: g.id,
       kind: g.kind,
@@ -273,6 +292,11 @@ function reqNumber(v: unknown, what: string): number {
 function reqString(v: unknown, what: string): string {
   if (typeof v !== 'string') fail(`"${what}" debe ser texto`);
   return v;
+}
+
+function optNumber(v: unknown, what: string, def: number): number {
+  if (v === undefined || v === null) return def;
+  return reqNumber(v, what);
 }
 
 function optString(v: unknown, what: string, def: string): string {
@@ -474,6 +498,17 @@ function readModelFile(data: ModelFile | string): ModelFile {
         text: optString(d.text, `dimensions[${k}].text`, ''),
       };
     }),
+    angleDimensions: reqArray(o.angleDimensions ?? [], 'angleDimensions').map((rd, k) => {
+      const d = reqObject(rd, `angleDimensions[${k}]`);
+      return {
+        id: reqInt(d.id, `angleDimensions[${k}].id`),
+        vertex: readVec(d.vertex, `angleDimensions[${k}].vertex`),
+        a: readVec(d.a, `angleDimensions[${k}].a`),
+        b: readVec(d.b, `angleDimensions[${k}].b`),
+        radius: optNumber(d.radius, `angleDimensions[${k}].radius`, 0),
+        text: optString(d.text, `angleDimensions[${k}].text`, ''),
+      };
+    }),
     guides: reqArray(o.guides ?? [], 'guides').map((rg, k) => {
       const g = reqObject(rg, `guides[${k}]`);
       const kind = optString(g.kind, `guides[${k}].kind`, 'line');
@@ -605,6 +640,18 @@ export function deserializeModel(data: ModelFile | string): Model {
       a: { x: d.a[0], y: d.a[1], z: d.a[2] },
       b: { x: d.b[0], y: d.b[1], z: d.b[2] },
       offset: { x: d.offset[0], y: d.offset[1], z: d.offset[2] },
+      text: d.text,
+    });
+    if (d.id > maxId) maxId = d.id;
+  }
+  model.angleDimensions.clear();
+  for (const d of file.angleDimensions) {
+    model.angleDimensions.set(d.id, {
+      id: d.id,
+      vertex: { x: d.vertex[0], y: d.vertex[1], z: d.vertex[2] },
+      a: { x: d.a[0], y: d.a[1], z: d.a[2] },
+      b: { x: d.b[0], y: d.b[1], z: d.b[2] },
+      radius: d.radius,
       text: d.text,
     });
     if (d.id > maxId) maxId = d.id;

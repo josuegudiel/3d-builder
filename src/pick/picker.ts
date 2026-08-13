@@ -1,5 +1,5 @@
 import { Id } from '../core/model/types';
-import { Vec3, sub, add, mul, dot, lengthSq, addScaled } from '../core/math/vec';
+import { Vec3, sub, add, mul, dot, cross, lengthSq, addScaled } from '../core/math/vec';
 import { Ray } from '../core/math/geom';
 import { rayTriangleFast, rayPointDistanceSq, rayDepth, raySegmentDistance } from './fastmath';
 import { clamp } from '../core/math/tolerance';
@@ -81,12 +81,20 @@ export function pickEntity(
   // --- 1. Cara más cercana --------------------------------------------------
   let faceHit: PickResult | null = null;
   let faceT = Infinity;
+  // Plano de la cara señalada, que es el que tapa lo que haya detrás.
+  let faceNormal: Vec3 | null = null;
+  let faceOffset = 0;
   for (const g of active) {
     for (let i = g.triStart; i < g.triEnd; i++) {
       const tri = cache.triangles[i];
       const t = rayTriangleFast(ray, tri.a, tri.b, tri.c);
       if (t < 0 || t >= faceT) continue;
       faceT = t;
+      const n = cross(sub(tri.b, tri.a), sub(tri.c, tri.a));
+      if (lengthSq(n) > 0) {
+        faceNormal = n;
+        faceOffset = dot(n, tri.a);
+      }
       const point = addScaled(ray.origin, ray.dir, t);
       if (tri.active) {
         faceHit = {
@@ -103,8 +111,25 @@ export function pickEntity(
     }
   }
 
-  // Margen de profundidad para considerar "visible" lo que está justo delante.
-  const depthSlack = faceT === Infinity ? Infinity : faceT + Math.max(faceT * 1e-3, 1e-5);
+  /**
+   * ¿Está el punto TAPADO por la cara que hay bajo el cursor?
+   *
+   * La pregunta no es a qué profundidad está, sino de qué lado del plano de esa
+   * cara cae. Comparar profundidades obliga a inventar un margen, y no hay
+   * ninguno que valga a la vez para una pared vista de frente —donde dos
+   * centímetros detrás ya está oculto— y para el suelo visto de refilón, donde
+   * el borde lejano de la propia cara está a medio metro de profundidad y sí se
+   * ve. Mirando el plano, el borde de una cara siempre queda sobre él (visible)
+   * y lo que hay detrás de una pared siempre queda detrás.
+   */
+  const hidden = (p: Vec3, depth: number): boolean => {
+    if (!faceNormal) return false;
+    const denom = dot(faceNormal, ray.dir);
+    if (Math.abs(denom) <= 1e-12) return false;
+    const s = (faceOffset - dot(faceNormal, p)) / denom;
+    // s < 0 ⇒ el plano queda hacia la cámara desde el punto: lo tapa.
+    return s < -Math.max(depth * 1e-4, 1e-9);
+  };
 
   // --- 2. Vértices ----------------------------------------------------------
   let best: PickResult | null = null;
@@ -116,7 +141,7 @@ export function pickEntity(
       const v = cache.vertices[i];
       if (!v.active) continue;
       const along = rayDepth(ray, v.p);
-      if (along <= 0 || along > depthSlack) continue;
+      if (along <= 0 || hidden(v.p, along)) continue;
       // Rechazo barato en el espacio del mundo, con margen de seguridad.
       const limit = worldRadius(tol * 1.5, along);
       if (rayPointDistanceSq(ray, v.p) > limit * limit) continue;
@@ -145,7 +170,7 @@ export function pickEntity(
       const seg = cache.segments[i];
       if (!seg.active) continue;
       const near = raySegmentDistance(ray, seg.a, seg.b);
-      if (near.depth <= 0 || near.depth > depthSlack) continue;
+      if (near.depth <= 0) continue;
       const limit = worldRadius(tol * 1.5, near.depth);
       if (near.distSq > limit * limit) continue;
 
@@ -156,7 +181,7 @@ export function pickEntity(
       if (dist >= bestD) continue;
       const point = add(seg.a, mul(sub(seg.b, seg.a), t));
       const along = dot(sub(point, ray.origin), ray.dir);
-      if (along > depthSlack) continue;
+      if (along <= 0 || hidden(point, along)) continue;
       bestD = dist;
       best = {
         kind: 'edge', id: seg.edgeId, path: seg.path, point,
@@ -176,7 +201,7 @@ export function pickEntity(
       const seg = cache.segments[i];
       if (seg.active || seg.topInstance === null) continue;
       const near = raySegmentDistance(ray, seg.a, seg.b);
-      if (near.depth <= 0 || near.depth > depthSlack) continue;
+      if (near.depth <= 0) continue;
       const limit = worldRadius(tol * 1.5, near.depth);
       if (near.distSq > limit * limit) continue;
       const sa = project(viewport, seg.a);
@@ -186,7 +211,7 @@ export function pickEntity(
       if (dist >= bestD) continue;
       const point = add(seg.a, mul(sub(seg.b, seg.a), t));
       const along = dot(sub(point, ray.origin), ray.dir);
-      if (along > depthSlack) continue;
+      if (along <= 0 || hidden(point, along)) continue;
       bestD = dist;
       best = {
         kind: 'instance', id: seg.topInstance, path: seg.path, point,

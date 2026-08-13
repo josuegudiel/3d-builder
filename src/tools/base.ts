@@ -36,6 +36,12 @@ export interface Tool {
 
   /** Cancela la operación en curso (Escape). */
   cancel?(): void;
+
+  /**
+   * ¿Hay una operación a medias? Escape la cancela; si no la hay, Escape sirve
+   * para salir del grupo que se esté editando.
+   */
+  busy?(): boolean;
 }
 
 /**
@@ -73,11 +79,24 @@ export abstract class BaseTool implements Tool {
   constructor(protected readonly editor: Editor) {}
 
   activate(): void {
-    this.reset();
+    // `cancel` y no `reset`: cada herramienta guarda sus propios puntos, y
+    // `reset` sólo limpia los de la base. Sin esto, empezar una línea, cambiar
+    // de herramienta y volver dejaba el primer punto puesto, y el siguiente
+    // clic dibujaba desde donde el usuario ya no estaba.
+    this.cancel();
   }
 
   deactivate(): void {
-    this.reset();
+    this.cancel();
+  }
+
+  /**
+   * Por omisión, una herramienta está a medias si ya tiene punto de anclaje,
+   * que es lo que colocan todas al aceptar el primer clic. Las que guardan su
+   * estado de otra forma lo dicen ellas.
+   */
+  busy(): boolean {
+    return this.anchor !== null;
   }
 
   /** Vuelve al estado inicial. */

@@ -1,6 +1,6 @@
 import '../style.css';
 import { Viewport } from '../render/viewport';
-import { Editor } from '../app/editor';
+import { Editor, MeasureField } from '../app/editor';
 import { Tool } from '../tools/base';
 import { SelectTool } from '../tools/select';
 import {
@@ -13,10 +13,14 @@ import {
   EraserTool, PaintTool, TapeMeasureTool, DimensionTool, ProtractorTool,
   OrbitTool, PanTool, ZoomTool,
 } from '../tools/utility';
+import { AngleTool, selectionAngleSummary } from '../tools/angle';
 import { icon } from './icons';
 import { THEME } from '../render/theme';
 import { Id } from '../core/model/types';
-import { formatLength, formatArea, formatVolume, LengthUnit, LengthFormat, UNIT_NAME } from '../core/units';
+import {
+  formatLength, formatArea, formatVolume, parseLength, parseAngle,
+  LengthUnit, LengthFormat, UNIT_NAME,
+} from '../core/units';
 import { faceArea } from '../core/topology/triangulate';
 import {
   shellVolume, isSolid, faceComponent, flipFace, orientFacesConsistently,
@@ -36,6 +40,11 @@ import { Form3DApi } from '../app/api';
 import { ContextMenu } from './contextmenu';
 import { SOLIDS } from '../core/ops/solids';
 import { openSolidDialog } from './solids-dialog';
+import { BooleanOp, BOOLEAN_LABEL, booleanInstances, SolidOpResult } from '../core/ops/boolean';
+import { intersectFaceSets } from '../core/ops/intersect';
+import { rebuildFaces, collectCandidatePlanes } from '../core/topology/rebuild';
+import { measureInstance, analyseJoint, JointReport, Member } from '../core/measure/member';
+import { describeJoint, describeMember, jointLines } from '../core/measure/report';
 import { CameraState } from '../render/camera';
 
 interface ToolEntry {
@@ -57,6 +66,11 @@ export class AppUI {
 
   private canvasWrap!: HTMLDivElement;
   private tipEl!: HTMLDivElement;
+  private hudSnapEl!: HTMLDivElement;
+  private hudFieldsEl!: HTMLDivElement;
+  /** Última posición del cursor dentro del lienzo, para colocar el cartel. */
+  private hudAt = { x: 0, y: 0 };
+  private hudFields: MeasureField[] = [];
   private rectEl!: HTMLDivElement;
   private labelHost!: HTMLDivElement;
   private statusEl!: HTMLDivElement;
@@ -135,11 +149,23 @@ export class AppUI {
         { sep: true },
         { label: 'Invertir caras', action: () => this.doFlipFaces() },
         { label: 'Orientar caras del sólido', action: () => this.doOrient() },
+        { sep: true },
+        { label: 'Eliminar cotas', action: () => this.doClearDimensions() },
+        { label: 'Eliminar guías', action: () => this.doClearGuides() },
       ]),
       this.buildMenu('Insertar', SOLIDS.map((def) => ({
         label: def.label,
         action: () => openSolidDialog(this.editor, def),
       }))),
+      this.buildMenu('Sólidos', [
+        { label: 'Unir', action: () => this.doBoolean('union') },
+        { label: 'Restar', action: () => this.doBoolean('subtract') },
+        { label: 'Intersecar', action: () => this.doBoolean('intersect') },
+        { sep: true },
+        { label: 'Intersecar caras', action: () => this.doIntersectFaces() },
+        { sep: true },
+        { label: 'Medir la unión', action: () => this.doMeasureJoint() },
+      ]),
       this.buildMenu('Ver', [
         { label: 'Encajar todo', keys: 'Mayús+Z', action: () => this.editor.zoomExtents() },
         {
@@ -201,7 +227,13 @@ export class AppUI {
     // --- Lienzo -------------------------------------------------------------
     this.canvasWrap = el('div', 'canvas-wrap') as HTMLDivElement;
     const host = el('div', 'canvas-host');
-    this.tipEl = el('div', 'inference-tip') as HTMLDivElement;
+    // Cartel que sigue al cursor: primero a qué se ha enganchado, debajo las
+    // medidas vivas. Va junto al ratón porque es donde está la mirada mientras
+    // se dibuja; la barra inferior repite la lectura que se puede teclear.
+    this.tipEl = el('div', 'cursor-hud') as HTMLDivElement;
+    this.hudSnapEl = el('div', 'hud-snap') as HTMLDivElement;
+    this.hudFieldsEl = el('div', 'hud-fields') as HTMLDivElement;
+    this.tipEl.append(this.hudSnapEl, this.hudFieldsEl);
     this.rectEl = el('div', 'selection-rect') as HTMLDivElement;
     this.labelHost = el('div', 'label-host') as HTMLDivElement;
     this.labelHost.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
@@ -385,18 +417,19 @@ export class AppUI {
       { tool: new CircleTool(e), iconName: 'circle', shortcut: 'c', group: 1 },
       { tool: new PolygonTool(e), iconName: 'polygon', shortcut: 'g', group: 1 },
       { tool: new ArcTool(e), iconName: 'arc', shortcut: 'a', group: 1 },
-      { tool: new Arc3Tool(e), iconName: 'arc3', group: 1 },
+      { tool: new Arc3Tool(e), iconName: 'arc3', shortcut: 'i', group: 1 },
       { tool: new PushPullTool(e), iconName: 'pushpull', shortcut: 'p', group: 2 },
       { tool: new MoveTool(e), iconName: 'move', shortcut: 'm', group: 2 },
       { tool: new RotateTool(e), iconName: 'rotate', shortcut: 'q', group: 2 },
       { tool: new ScaleTool(e), iconName: 'scale', shortcut: 's', group: 2 },
       { tool: new OffsetTool(e), iconName: 'offset', shortcut: 'f', group: 2 },
-      { tool: new FollowMeTool(e), iconName: 'followme', group: 2 },
+      { tool: new FollowMeTool(e), iconName: 'followme', shortcut: 'u', group: 2 },
       { tool: new EraserTool(e), iconName: 'eraser', shortcut: 'e', group: 3 },
       { tool: this.paintTool, iconName: 'paint', shortcut: 'b', group: 3 },
       { tool: new TapeMeasureTool(e), iconName: 'tape', shortcut: 't', group: 4 },
       { tool: new DimensionTool(e), iconName: 'dimension', shortcut: 'd', group: 4 },
-      { tool: new ProtractorTool(e), iconName: 'protractor', group: 4 },
+      { tool: new ProtractorTool(e), iconName: 'protractor', shortcut: 'j', group: 4 },
+      { tool: new AngleTool(e), iconName: 'angle', shortcut: 'n', group: 4 },
       { tool: new OrbitTool(e), iconName: 'orbit', shortcut: 'o', group: 5 },
       { tool: new PanTool(e), iconName: 'pan', shortcut: 'h', group: 5 },
       { tool: new ZoomTool(e), iconName: 'zoom', shortcut: 'z', group: 5 },
@@ -446,16 +479,19 @@ export class AppUI {
       this.vcbInput.disabled = !editable && !label;
     };
 
+    e.events.onMeasurements = (fields) => {
+      this.hudFields = fields;
+      this.renderHud();
+    };
+
     e.events.onTooltip = (text, x, y) => {
-      if (!text) {
-        this.tipEl.classList.remove('visible');
-        return;
+      this.hudSnapEl.textContent = text;
+      this.hudSnapEl.style.display = text ? '' : 'none';
+      if (text) {
+        const local = this.viewport.toLocal(x, y);
+        this.hudAt = { x: local.x, y: local.y };
       }
-      const local = this.viewport.toLocal(x, y);
-      this.tipEl.textContent = text;
-      this.tipEl.style.left = `${local.x}px`;
-      this.tipEl.style.top = `${local.y}px`;
-      this.tipEl.classList.add('visible');
+      this.renderHud();
     };
 
     e.events.onSelectionRect = (rect) => {
@@ -495,6 +531,12 @@ export class AppUI {
     }, true);
     window.addEventListener('keydown', (ev) => this.onKeyDown(ev));
 
+    // Lo que se escribe en la barra inferior se ve también en el cartel del
+    // cursor, que es donde está mirando quien dibuja.
+    this.vcbInput.addEventListener('input', () => this.renderHud());
+    this.vcbInput.addEventListener('focus', () => this.renderHud());
+    this.vcbInput.addEventListener('blur', () => this.renderHud());
+
     this.vcbInput.addEventListener('keydown', (ev) => {
       ev.stopPropagation();
       if (ev.key === 'Enter') {
@@ -511,16 +553,67 @@ export class AppUI {
     this.buildSwatches();
   }
 
+  /**
+   * Redibuja el cartel del cursor y lo coloca. Se aparta del borde en vez de
+   * salirse: junto al panel derecho o a la barra inferior, un cartel a la
+   * derecha y abajo del cursor queda cortado justo cuando hace falta leerlo.
+   */
+  private renderHud(): void {
+    const typed = document.activeElement === this.vcbInput ? this.vcbInput.value : '';
+    const fields = this.hudFields;
+
+    this.hudFieldsEl.replaceChildren();
+    for (const f of fields) {
+      const row = el('div', 'hud-row');
+      const label = el('span', 'hud-label');
+      label.textContent = f.label;
+      const value = el('span', 'hud-value');
+      // Lo tecleado sustituye a la lectura viva del campo que se está fijando:
+      // ver a la vez el valor del ratón y el escrito confunde sobre cuál manda.
+      const editable = f.editable !== false;
+      value.textContent = editable && typed ? typed : f.value;
+      value.classList.toggle('typing', editable && typed !== '');
+      row.append(label, value);
+      this.hudFieldsEl.append(row);
+    }
+    this.hudFieldsEl.style.display = fields.length ? '' : 'none';
+
+    const show = fields.length > 0 || this.hudSnapEl.textContent !== '';
+    this.tipEl.classList.toggle('visible', show);
+    if (!show) return;
+
+    const margin = 18;
+    const box = this.canvasWrap.getBoundingClientRect();
+    const size = this.tipEl.getBoundingClientRect();
+    let x = this.hudAt.x + margin;
+    let y = this.hudAt.y + margin;
+    if (x + size.width > box.width - 8) x = Math.max(8, this.hudAt.x - margin - size.width);
+    if (y + size.height > box.height - 8) y = Math.max(8, this.hudAt.y - margin - size.height);
+    this.tipEl.style.left = `${x}px`;
+    this.tipEl.style.top = `${y}px`;
+  }
+
   private commitMeasurement(): void {
     const text = this.vcbInput.value.trim();
     if (!text) return;
-    const ok = this.editor.tool.onMeasurement?.(text) ?? false;
+    if (!this.editor.tool.onMeasurement) {
+      this.vcbInput.select();
+      this.editor.setStatus(`${this.editor.tool.name} no admite escribir medidas.`);
+      return;
+    }
+    const ok = this.editor.tool.onMeasurement(text);
     if (ok) {
       this.vcbInput.value = '';
       this.viewport.renderer.domElement.focus();
     } else {
       this.vcbInput.select();
-      this.editor.setStatus('No se pudo interpretar el valor. Ejemplos: 1200, 1.2m, 5\' 6", 30;20');
+      // Si el texto se entiende como medida, lo que falla es el valor o el
+      // momento; decir siempre "no se pudo interpretar" era mentira.
+      const entendible = parseLength(text, { defaultUnit: this.editor.units.unit }) !== null
+        || parseAngle(text) !== null;
+      this.editor.setStatus(entendible
+        ? `${this.editor.tool.name} no puede usar ese valor ahora.`
+        : 'No se pudo interpretar el valor. Ejemplos: 1200, 1.2m, 5\' 6", 30;20');
     }
   }
 
@@ -562,6 +655,9 @@ export class AppUI {
     if (/^[0-9.,\-/'"]$/.test(ev.key)) {
       this.vcbInput.focus();
       this.vcbInput.value = ev.key;
+      // Asignar `value` a mano no dispara `input`, así que el cartel del
+      // cursor no se enteraría de la primera tecla: la que arranca el valor.
+      this.renderHud();
       ev.preventDefault();
       return;
     }
@@ -573,10 +669,16 @@ export class AppUI {
     }
 
     switch (ev.key) {
-      case 'Escape':
+      case 'Escape': {
+        // Primero se cancela lo que esté a medias; si no había nada, Escape
+        // sirve para salir del grupo que se esté editando, con cualquier
+        // herramienta y no sólo con Seleccionar.
+        const ocupada = this.editor.tool.busy?.() ?? false;
         this.editor.tool.cancel?.();
+        if (!ocupada && this.editor.contextPath.length > 0) this.editor.exitContext();
         ev.preventDefault();
         return;
+      }
       case 'Delete':
       case 'Backspace':
         this.deleteSelection();
@@ -663,11 +765,15 @@ export class AppUI {
   private doInvert(): void {
     invertSelection(this.editor.selection, this.editor.geometry);
     this.editor.refreshModel();
+    this.editor.setStatus(this.editor.selectionSummary());
   }
 
   private deleteSelection(): void {
     const sel = this.editor.selection;
-    if (selectionSize(sel) === 0) return;
+    if (selectionSize(sel) === 0) {
+      this.editor.setStatus('No hay nada seleccionado que borrar.');
+      return;
+    }
     const edges = [...sel.edges];
     const faces = [...sel.faces];
     const instances = [...sel.instances];
@@ -714,20 +820,152 @@ export class AppUI {
 
   private doFlipFaces(): void {
     const faces = [...this.editor.selection.faces];
-    if (faces.length === 0) return;
+    if (faces.length === 0) {
+      this.editor.setStatus('Invertir caras: selecciona antes las caras.');
+      return;
+    }
     this.editor.edit('Invertir caras', () => {
       for (const f of faces) flipFace(this.editor.geometry, f);
     });
+    this.editor.setStatus(`Invertida(s) ${faces.length} cara(s).`);
   }
 
   private doOrient(): void {
     const faces = [...this.editor.selection.faces];
     const geo = this.editor.geometry;
     const seeds = faces.length > 0 ? faces : [...geo.faces.keys()];
-    if (seeds.length === 0) return;
-    this.editor.edit('Orientar caras', () => {
-      orientFacesConsistently(geo, seeds);
+    if (seeds.length === 0) {
+      this.editor.setStatus('No hay caras que orientar.');
+      return;
+    }
+    const r = this.editor.edit('Orientar caras', () => orientFacesConsistently(geo, seeds));
+    this.editor.setStatus(r.flipped.length > 0
+      ? `Orientadas: ${r.flipped.length} cara(s) invertidas.`
+      : 'Las caras ya estaban orientadas de forma coherente.');
+  }
+
+  /** Borra todas las cotas: son anotaciones, no geometría, y Supr no las toca. */
+  private doClearDimensions(): void {
+    const model = this.editor.model;
+    const n = model.dimensions.size + model.angleDimensions.size;
+    if (n === 0) {
+      this.editor.setStatus('No hay cotas que eliminar.');
+      return;
+    }
+    this.editor.edit('Eliminar cotas', () => model.clearDimensions());
+    this.editor.setStatus(`Eliminadas ${n} cota(s).`);
+  }
+
+  private doClearGuides(): void {
+    const model = this.editor.model;
+    const n = model.guides.size;
+    if (n === 0) {
+      this.editor.setStatus('No hay guías que eliminar.');
+      return;
+    }
+    this.editor.edit('Eliminar guías', () => model.clearGuides());
+    this.editor.setStatus(`Eliminadas ${n} guía(s).`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Sólidos
+  // -------------------------------------------------------------------------
+
+  /**
+   * Une, resta o interseca los dos grupos seleccionados. Al terminar enseña el
+   * informe de la unión, que es lo que hace falta para cortar las piezas.
+   */
+  private doBoolean(op: BooleanOp): void {
+    const sel = this.editor.selection;
+    if (sel.instances.size !== 2) {
+      this.editor.setStatus(`${BOOLEAN_LABEL[op]}: selecciona exactamente dos grupos.`);
+      return;
+    }
+    const [a, b] = [...sel.instances];
+    const geo = this.editor.geometry;
+
+    let result: SolidOpResult | null = null;
+    try {
+      // La operación se hace dentro de `edit`, pero si falla se lanza para que
+      // el paso de historial se DESCARTE. Deshacerlo después habría dejado una
+      // entrada fantasma y, peor, habría borrado la pila de rehacer del
+      // usuario; la pieza no llega a tocarse porque la booleana trabaja sobre
+      // una copia.
+      this.editor.edit(BOOLEAN_LABEL[op], () => {
+        const r = booleanInstances(this.editor.model, geo, a, b, op);
+        result = r;
+        if (!r.ok) throw new Error(r.message);
+        clearSelection(sel);
+        if (r.instanceId !== null) sel.instances.add(r.instanceId);
+      });
+    } catch {
+      const r = result as SolidOpResult | null;
+      this.editor.setStatus(`${BOOLEAN_LABEL[op]}: ${r?.message ?? 'no se ha podido hacer.'}`);
+      return;
+    }
+
+    const r = result as SolidOpResult | null;
+    if (!r) return;
+    const extra = r.solid ? '' : ' El resultado no es un sólido cerrado.';
+    this.editor.setStatus(`${BOOLEAN_LABEL[op]}: hecho.${extra}`);
+    if (r.joint) this.showJointReport(r.joint, r.members);
+  }
+
+  /**
+   * Inserta las aristas donde se cruzan las caras seleccionadas con el resto
+   * del contexto, sin borrar nada: es el paso previo a recortar a mano.
+   */
+  private doIntersectFaces(): void {
+    const geo = this.editor.geometry;
+    const sel = this.editor.selection;
+    // Hace falta una selección: cruzar el modelo entero consigo mismo puede
+    // multiplicar por veinte el número de caras y bloquear la aplicación varios
+    // segundos sin que nadie lo haya pedido.
+    if (sel.faces.size === 0) {
+      this.editor.setStatus('Intersecar caras: selecciona antes las caras que quieres cruzar con el resto.');
+      return;
+    }
+    const selected = new Set(sel.faces);
+    const target = [...geo.faces.keys()].filter((f) => !selected.has(f));
+    if (target.length === 0) {
+      this.editor.setStatus('Intersecar caras: no hay más geometría con la que cruzar.');
+      return;
+    }
+
+    let created = 0;
+    this.editor.edit('Intersecar caras', () => {
+      const r = intersectFaceSets(geo, selected, target);
+      created = r.created.length;
+      if (r.edges.length > 0) {
+        rebuildFaces(geo, collectCandidatePlanes(geo, r.edges), { newEdges: new Set(r.edges) });
+      }
     });
+    this.editor.setStatus(created > 0
+      ? `Intersecar caras: ${created} arista(s) nuevas.`
+      : 'Intersecar caras: no hay cruces.');
+  }
+
+  /** Informe de la unión entre las dos piezas seleccionadas, sin modificarlas. */
+  private doMeasureJoint(): void {
+    const geo = this.editor.geometry;
+    const sel = this.editor.selection;
+    if (sel.instances.size === 2) {
+      const [a, b] = [...sel.instances];
+      const ma = measureInstance(this.editor.model, geo, a);
+      const mb = measureInstance(this.editor.model, geo, b);
+      if (ma && mb) {
+        this.showJointReport(analyseJoint(ma, mb), [ma, mb]);
+        return;
+      }
+    }
+    this.editor.setStatus('Medir la unión: selecciona dos grupos.');
+  }
+
+  private showJointReport(joint: JointReport, members: [Member | null, Member | null]): void {
+    const lines = jointLines(joint, members, this.editor.units);
+    const html = lines.map((l) => row(l.label, escapeHtml(l.value))).join('');
+    this.showModal('Unión entre piezas', html);
+    this.editor.setStatus(describeJoint(joint, this.editor.units));
   }
 
   private newModel(): void {
@@ -873,6 +1111,27 @@ export class AppUI {
       }
     }
 
+    // Ángulos de la selección: diedro de una arista, ángulo entre dos aristas
+    // o entre dos caras, y unión completa entre dos piezas.
+    const angle = selectionAngleSummary(
+      geo, [...sel.edges], [...sel.faces], units, (f) => this.editor.shellOf(f),
+    );
+    if (angle) rows.push(row('Ángulo', escapeHtml(angle)));
+
+    if (sel.instances.size === 2) {
+      const [ia, ib] = [...sel.instances];
+      const ma = measureInstance(this.editor.model, geo, ia);
+      const mb = measureInstance(this.editor.model, geo, ib);
+      if (ma && mb) {
+        rows.push(row('Pieza 1', escapeHtml(describeMember(ma, units))));
+        rows.push(row('Pieza 2', escapeHtml(describeMember(mb, units))));
+        rows.push(row('Unión', escapeHtml(describeJoint(analyseJoint(ma, mb), units))));
+      }
+    } else if (sel.instances.size === 1) {
+      const m = measureInstance(this.editor.model, geo, [...sel.instances][0]);
+      if (m) rows.push(row('Pieza', escapeHtml(describeMember(m, units))));
+    }
+
     rows.push(row('Selección', escapeHtml(this.editor.selectionSummary())));
     this.infoBody.innerHTML = rows.join('');
   }
@@ -926,7 +1185,7 @@ export class AppUI {
           d.style.display = 'none';
           continue;
         }
-        const dim = this.editor.model.dimensions.get(label.id);
+        const dim = label.kind === 'dimension' ? this.editor.model.dimensions.get(label.id) : undefined;
         const text = label.text || (dim
           ? formatLength(dist3(dim.a, dim.b), this.editor.units)
           : '');
@@ -947,8 +1206,7 @@ export class AppUI {
   private showHelp(): void {
     const sections: Array<[string, Array<[string, string]>]> = [
       ['Herramientas', this.tools
-        .filter((t) => t.shortcut)
-        .map((t) => [t.shortcut!.toUpperCase(), t.tool.name] as [string, string])],
+        .map((t) => [t.shortcut ? t.shortcut.toUpperCase() : '—', t.tool.name] as [string, string])],
       ['Navegación', [
         ['Rueda', 'Acercar o alejar hacia el cursor'],
         ['Botón central', 'Orbitar'],
@@ -995,6 +1253,13 @@ export class AppUI {
             cerrado se convierte en una cara nueva que también puedes empujar.</li>
         <li>Usa <kbd>D</kbd> para acotar y <kbd>T</kbd> para medir.</li>
         <li><kbd>Ctrl+G</kbd> agrupa lo seleccionado; doble clic entra en el grupo.</li>
+        <li><kbd>N</kbd> es la herramienta Ángulo: señala una arista y verás su
+            diedro; elige dos aristas, dos caras o dos piezas y te dará el
+            ángulo, y en el caso de dos piezas también el inglete y el bisel con
+            que hay que cortar cada una.</li>
+        <li>Con dos grupos seleccionados, <b>Sólidos ▸ Unir</b> los convierte en
+            una sola pieza y enseña el informe de la unión. También hay
+            <b>Restar</b> e <b>Intersecar</b>.</li>
       </ol>
       <p style="color:var(--text-dim)">Todas las medidas se escriben en el cuadro inferior derecho.
       Acepta <b>1200</b>, <b>1.2m</b>, <b>120cm</b> y también <b>5' 6"</b>.</p>

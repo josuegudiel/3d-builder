@@ -3,7 +3,8 @@ import { PointerInfo } from '../app/editor';
 import { Overlay } from '../render/overlay';
 import { THEME } from '../render/theme';
 import {
-  Vec3, sub, add, mul, dot, cross, normalize, length, distance, addScaled, v3,
+  Vec3, sub, add, mul, dot, cross, normalize, length, lengthSq, distance, addScaled,
+  midpoint, v3, angleBetween, rotateAround, AXIS_X, AXIS_Z,
 } from '../core/math/vec';
 import { Plane, planeFromPointNormal } from '../core/math/plane';
 import { EPS } from '../core/math/tolerance';
@@ -12,7 +13,9 @@ import {
   frameFromNormal, rectanglePoints, rectangleFromSize, circlePoints, polygonPoints,
   bulgeArcPoints, arcFrom3Points, PlaneFrame,
 } from '../core/ops/primitives';
-import { formatLength, parseLength, parseLengthList } from '../core/units';
+import {
+  formatLength, formatAngle, parseLength, parseLengthList, parseAngle,
+} from '../core/units';
 import { orientFacesConsistently } from '../core/topology/orient';
 
 /** Distancia en píxeles a partir de la cual un clic se considera arrastre. */
@@ -106,16 +109,56 @@ abstract class DrawingTool extends BaseTool {
 export class LineTool extends DrawingTool {
   readonly id = 'line';
   readonly name = 'Línea';
-  readonly statusHint = 'Clic para el primer punto. Escribe una longitud y pulsa Intro para fijarla. Escape termina.';
+  readonly statusHint = 'Clic para el primer punto. Escribe la longitud, o "longitud;ángulo", y pulsa Intro. Escape termina.';
 
   override onPointerMove(e: PointerInfo): void {
     const hit = this.updateInference(e);
     this.preview = hit.point;
     if (this.points.length > 0) {
-      const d = distance(this.points[this.points.length - 1], hit.point);
-      this.editor.showMeasurement('Longitud', formatLength(d, this.editor.units));
+      this.publishReadings(this.points[this.points.length - 1], hit.point);
     }
     this.editor.refreshOverlay();
+  }
+
+  /**
+   * Lecturas del segmento en curso: cuánto mide y con qué ángulo sale.
+   *
+   * Qué ángulo interesa depende de si hay segmento anterior. Encadenando (el
+   * caso de un faldón o el perfil de un porche) lo que se replantea es el giro
+   * en el vértice, que es lo que se mide con la falsa escuadra. En el primer
+   * segmento no hay giro que medir, y entonces lo útil es la inclinación
+   * respecto a la horizontal: la pendiente del par.
+   */
+  private publishReadings(from: Vec3, to: Vec3): void {
+    const dir = sub(to, from);
+    const d = length(dir);
+    const fields = [{ label: 'Longitud', value: formatLength(d, this.editor.units) }];
+    const angle = this.currentAngle(dir);
+    if (angle) {
+      fields.push({ label: angle.label, value: formatAngle(angle.radians, this.editor.units) });
+    }
+    this.editor.showMeasurements(fields);
+  }
+
+  /** Devuelve el ángulo que se está replanteando, o null si aún no lo hay. */
+  private currentAngle(dir: Vec3): { label: string; radians: number } | null {
+    if (length(dir) <= EPS) return null;
+    const prev = this.previousDirection();
+    if (prev) return { label: 'Ángulo', radians: angleBetween(prev, dir) };
+
+    // Inclinación respecto al plano horizontal, con signo: hacia arriba
+    // positiva. Un tramo horizontal da 0°, uno vertical 90°.
+    const horizontal = Math.hypot(dir.x, dir.y);
+    return { label: 'Inclinación', radians: Math.atan2(dir.z, horizontal) };
+  }
+
+  /** Dirección del segmento ya fijado que llega al último punto. */
+  private previousDirection(): Vec3 | null {
+    if (this.points.length < 2) return null;
+    const a = this.points[this.points.length - 2];
+    const b = this.points[this.points.length - 1];
+    const d = sub(b, a);
+    return length(d) > EPS ? normalize(d) : null;
   }
 
   override onPointerDown(e: PointerInfo): void {
@@ -156,13 +199,51 @@ export class LineTool extends DrawingTool {
   override onMeasurement(text: string): boolean {
     const last = this.points[this.points.length - 1];
     if (!last || !this.preview) return false;
+    const cursor = sub(this.preview, last);
+    if (length(cursor) <= EPS) return false;
+
+    // "longitud;ángulo" replantea el segmento en polares: es la forma en que
+    // viene dado un par en un plano de cubierta (largo y pendiente).
+    const parts = text.split(';');
+    if (parts.length >= 2) {
+      const len = parseLength(parts[0], { defaultUnit: this.editor.units.unit });
+      const ang = parseAngle(parts[1]);
+      if (len === null || ang === null || Math.abs(len) <= EPS) return false;
+      const dir = this.directionAt(ang, normalize(cursor));
+      if (!dir) return false;
+      this.addPoint(addScaled(last, dir, Math.abs(len)));
+      return true;
+    }
+
     const value = parseLength(text, { defaultUnit: this.editor.units.unit });
     if (value === null || Math.abs(value) <= EPS) return false;
-    const dir = sub(this.preview, last);
-    if (length(dir) <= EPS) return false;
-    const target = addScaled(last, normalize(dir), value);
+    const target = addScaled(last, normalize(cursor), value);
     this.addPoint(target);
     return true;
+  }
+
+  /**
+   * Dirección que forma `angle` con la referencia, medida igual que la lectura
+   * que se está viendo: giro respecto al segmento anterior si lo hay, o
+   * inclinación sobre la horizontal si es el primero. `cursor` decide hacia qué
+   * lado se gira, para que el resultado caiga donde apunta el ratón.
+   */
+  private directionAt(angle: number, cursor: Vec3): Vec3 | null {
+    const prev = this.previousDirection();
+    if (prev) {
+      let axis = cross(prev, cursor);
+      if (length(axis) <= EPS) {
+        // El cursor está alineado con el segmento anterior: no hay plano de
+        // giro definido por el gesto, así que se usa el de trabajo.
+        axis = this.workPlane ? this.workPlane.n : AXIS_Z;
+        if (length(cross(prev, axis)) <= EPS) return null;
+      }
+      return normalize(rotateAround(prev, normalize(axis), angle));
+    }
+
+    const horizontal = v3(cursor.x, cursor.y, 0);
+    const base = length(horizontal) > EPS ? normalize(horizontal) : AXIS_X;
+    return normalize(addScaled(mul(base, Math.cos(angle)), AXIS_Z, Math.sin(angle)));
   }
 
   override onKeyDown(e: KeyboardEvent): boolean {
@@ -572,6 +653,36 @@ export class Arc3Tool extends DrawingTool {
     }
     if (this.curve.length >= 2) this.commit(this.curve, false, 'Arco');
     this.cancel();
+  }
+
+  /**
+   * Radio exacto. Con los dos extremos puestos, el radio determina la comba:
+   * h = R − √(R² − (cuerda/2)²). El lado hacia el que abomba lo sigue diciendo
+   * el cursor, que es lo que el usuario está viendo.
+   */
+  override onMeasurement(text: string): boolean {
+    if (this.points.length !== 2 || !this.preview) return false;
+    const radius = parseLength(text, { defaultUnit: this.editor.units.unit, allowNegative: false });
+    if (radius === null || radius <= EPS) return false;
+
+    const a = this.points[0];
+    const b = this.points[1];
+    const chord = distance(a, b);
+    if (chord <= EPS || radius < chord / 2 - EPS) return false;
+
+    const mid = midpoint(a, b);
+    const along = normalize(sub(b, a));
+    const off = sub(this.preview, mid);
+    const perp = sub(off, mul(along, dot(off, along)));
+    if (lengthSq(perp) <= EPS * EPS) return false;
+
+    const h = radius - Math.sqrt(Math.max(0, radius * radius - (chord / 2) ** 2));
+    const through = addScaled(mid, normalize(perp), h);
+    const r = arcFrom3Points(a, through, b, this.segments);
+    if (!r || r.points.length < 2) return false;
+    this.commit(r.points, false, 'Arco');
+    this.cancel();
+    return true;
   }
 
   override cancel(): void {
