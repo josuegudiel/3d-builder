@@ -14,6 +14,18 @@ import {
 import { UnitSettings, DEFAULT_UNITS } from '../core/units';
 import { Tool } from '../tools/base';
 
+/**
+ * Una lectura del cuadro de medidas: la longitud, el ángulo, el radio… Las
+ * herramientas publican varias a la vez porque al dibujar interesan juntas
+ * (cuánto mide el segmento Y con qué ángulo sale). La primera que sea
+ * `editable` es la que recibe lo que se teclea.
+ */
+export interface MeasureField {
+  label: string;
+  value: string;
+  editable?: boolean;
+}
+
 export interface EditorEvents {
   /** El modelo o la selección han cambiado. */
   onModelChanged?: () => void;
@@ -23,6 +35,8 @@ export interface EditorEvents {
   onStatus?: (text: string) => void;
   /** El cuadro de medidas debe mostrar este valor. */
   onMeasurement?: (label: string, value: string, editable: boolean) => void;
+  /** Todas las lecturas vivas, para el cartel que sigue al cursor. */
+  onMeasurements?: (fields: MeasureField[]) => void;
   /** Etiqueta flotante junto al cursor (inferencia). */
   onTooltip?: (text: string, x: number, y: number) => void;
   /** Ha cambiado el contexto de edición (entrar/salir de un grupo). */
@@ -205,7 +219,20 @@ export class Editor {
   }
 
   showMeasurement(label: string, value: string, editable = true): void {
-    this.events.onMeasurement?.(label, value, editable);
+    this.showMeasurements(label || value ? [{ label, value, editable }] : []);
+  }
+
+  /**
+   * Publica todas las lecturas de golpe. La barra inferior sólo tiene sitio
+   * para una —la que se puede teclear—, mientras que el cartel del cursor las
+   * enseña todas.
+   */
+  showMeasurements(fields: readonly MeasureField[]): void {
+    const primary = fields.find((f) => f.editable !== false) ?? fields[0];
+    this.events.onMeasurement?.(
+      primary?.label ?? '', primary?.value ?? '', primary?.editable ?? false,
+    );
+    this.events.onMeasurements?.([...fields]);
   }
 
   // -------------------------------------------------------------------------

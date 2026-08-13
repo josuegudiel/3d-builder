@@ -1,6 +1,6 @@
 import '../style.css';
 import { Viewport } from '../render/viewport';
-import { Editor } from '../app/editor';
+import { Editor, MeasureField } from '../app/editor';
 import { Tool } from '../tools/base';
 import { SelectTool } from '../tools/select';
 import {
@@ -66,6 +66,11 @@ export class AppUI {
 
   private canvasWrap!: HTMLDivElement;
   private tipEl!: HTMLDivElement;
+  private hudSnapEl!: HTMLDivElement;
+  private hudFieldsEl!: HTMLDivElement;
+  /** Última posición del cursor dentro del lienzo, para colocar el cartel. */
+  private hudAt = { x: 0, y: 0 };
+  private hudFields: MeasureField[] = [];
   private rectEl!: HTMLDivElement;
   private labelHost!: HTMLDivElement;
   private statusEl!: HTMLDivElement;
@@ -222,7 +227,13 @@ export class AppUI {
     // --- Lienzo -------------------------------------------------------------
     this.canvasWrap = el('div', 'canvas-wrap') as HTMLDivElement;
     const host = el('div', 'canvas-host');
-    this.tipEl = el('div', 'inference-tip') as HTMLDivElement;
+    // Cartel que sigue al cursor: primero a qué se ha enganchado, debajo las
+    // medidas vivas. Va junto al ratón porque es donde está la mirada mientras
+    // se dibuja; la barra inferior repite la lectura que se puede teclear.
+    this.tipEl = el('div', 'cursor-hud') as HTMLDivElement;
+    this.hudSnapEl = el('div', 'hud-snap') as HTMLDivElement;
+    this.hudFieldsEl = el('div', 'hud-fields') as HTMLDivElement;
+    this.tipEl.append(this.hudSnapEl, this.hudFieldsEl);
     this.rectEl = el('div', 'selection-rect') as HTMLDivElement;
     this.labelHost = el('div', 'label-host') as HTMLDivElement;
     this.labelHost.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
@@ -468,16 +479,19 @@ export class AppUI {
       this.vcbInput.disabled = !editable && !label;
     };
 
+    e.events.onMeasurements = (fields) => {
+      this.hudFields = fields;
+      this.renderHud();
+    };
+
     e.events.onTooltip = (text, x, y) => {
-      if (!text) {
-        this.tipEl.classList.remove('visible');
-        return;
+      this.hudSnapEl.textContent = text;
+      this.hudSnapEl.style.display = text ? '' : 'none';
+      if (text) {
+        const local = this.viewport.toLocal(x, y);
+        this.hudAt = { x: local.x, y: local.y };
       }
-      const local = this.viewport.toLocal(x, y);
-      this.tipEl.textContent = text;
-      this.tipEl.style.left = `${local.x}px`;
-      this.tipEl.style.top = `${local.y}px`;
-      this.tipEl.classList.add('visible');
+      this.renderHud();
     };
 
     e.events.onSelectionRect = (rect) => {
@@ -517,6 +531,12 @@ export class AppUI {
     }, true);
     window.addEventListener('keydown', (ev) => this.onKeyDown(ev));
 
+    // Lo que se escribe en la barra inferior se ve también en el cartel del
+    // cursor, que es donde está mirando quien dibuja.
+    this.vcbInput.addEventListener('input', () => this.renderHud());
+    this.vcbInput.addEventListener('focus', () => this.renderHud());
+    this.vcbInput.addEventListener('blur', () => this.renderHud());
+
     this.vcbInput.addEventListener('keydown', (ev) => {
       ev.stopPropagation();
       if (ev.key === 'Enter') {
@@ -531,6 +551,46 @@ export class AppUI {
     });
 
     this.buildSwatches();
+  }
+
+  /**
+   * Redibuja el cartel del cursor y lo coloca. Se aparta del borde en vez de
+   * salirse: junto al panel derecho o a la barra inferior, un cartel a la
+   * derecha y abajo del cursor queda cortado justo cuando hace falta leerlo.
+   */
+  private renderHud(): void {
+    const typed = document.activeElement === this.vcbInput ? this.vcbInput.value : '';
+    const fields = this.hudFields;
+
+    this.hudFieldsEl.replaceChildren();
+    for (const f of fields) {
+      const row = el('div', 'hud-row');
+      const label = el('span', 'hud-label');
+      label.textContent = f.label;
+      const value = el('span', 'hud-value');
+      // Lo tecleado sustituye a la lectura viva del campo que se está fijando:
+      // ver a la vez el valor del ratón y el escrito confunde sobre cuál manda.
+      const editable = f.editable !== false;
+      value.textContent = editable && typed ? typed : f.value;
+      value.classList.toggle('typing', editable && typed !== '');
+      row.append(label, value);
+      this.hudFieldsEl.append(row);
+    }
+    this.hudFieldsEl.style.display = fields.length ? '' : 'none';
+
+    const show = fields.length > 0 || this.hudSnapEl.textContent !== '';
+    this.tipEl.classList.toggle('visible', show);
+    if (!show) return;
+
+    const margin = 18;
+    const box = this.canvasWrap.getBoundingClientRect();
+    const size = this.tipEl.getBoundingClientRect();
+    let x = this.hudAt.x + margin;
+    let y = this.hudAt.y + margin;
+    if (x + size.width > box.width - 8) x = Math.max(8, this.hudAt.x - margin - size.width);
+    if (y + size.height > box.height - 8) y = Math.max(8, this.hudAt.y - margin - size.height);
+    this.tipEl.style.left = `${x}px`;
+    this.tipEl.style.top = `${y}px`;
   }
 
   private commitMeasurement(): void {
@@ -595,6 +655,9 @@ export class AppUI {
     if (/^[0-9.,\-/'"]$/.test(ev.key)) {
       this.vcbInput.focus();
       this.vcbInput.value = ev.key;
+      // Asignar `value` a mano no dispara `input`, así que el cartel del
+      // cursor no se enteraría de la primera tecla: la que arranca el valor.
+      this.renderHud();
       ev.preventDefault();
       return;
     }

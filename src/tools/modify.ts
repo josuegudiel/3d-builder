@@ -20,6 +20,42 @@ import { formatLength, formatAngle, parseLength, parseLengthList, parseAngle } f
 import { matTranslation, matRotation } from '../core/math/mat';
 import { planeBasis, to2D, to3D } from '../core/math/plane';
 
+/** Distancia en píxeles a partir de la cual soltar cuenta como arrastre. */
+const DRAG_PIXELS = 5;
+
+/**
+ * Reconoce el gesto de arrastrar: pulsar sobre la cara, mover y soltar.
+ *
+ * Las herramientas de modificar siempre han admitido clic-mover-clic, pero su
+ * ayuda promete «clic en una cara y arrastra» y al soltar no pasaba nada: el
+ * volumen sólo aparecía si además se hacía un segundo clic. Con esto valen los
+ * dos gestos, que es como se espera de un modelador.
+ */
+class DragGesture {
+  private from: { x: number; y: number } | null = null;
+  private armed = false;
+
+  /** Registra la pulsación. `armed` indica si ésta inició la operación. */
+  press(e: PointerInfo, armed: boolean): void {
+    this.from = e.button === 0 ? { x: e.clientX, y: e.clientY } : null;
+    this.armed = armed;
+  }
+
+  /** ¿Soltar aquí debe confirmar la operación? Consume el gesto. */
+  release(e: PointerInfo): boolean {
+    const from = this.from;
+    const armed = this.armed;
+    this.reset();
+    if (!from || !armed || e.button !== 0) return false;
+    return Math.hypot(e.clientX - from.x, e.clientY - from.y) >= DRAG_PIXELS;
+  }
+
+  reset(): void {
+    this.from = null;
+    this.armed = false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Empujar/tirar
 // ---------------------------------------------------------------------------
@@ -43,6 +79,7 @@ export class PushPullTool extends BaseTool {
   private currentDistance = 0;
   private lastDistance = 0;
   private createNew = false;
+  private readonly drag = new DragGesture();
 
   override onPointerMove(e: PointerInfo): void {
     this.createNew = e.ctrlKey;
@@ -71,10 +108,16 @@ export class PushPullTool extends BaseTool {
       );
       if (!hit) return;
       this.beginOn(hit.id, hit.point);
+      this.drag.press(e, true);
       return;
     }
 
+    this.drag.press(e, false);
     this.apply(this.currentDistance);
+  }
+
+  override onPointerUp(e: PointerInfo): void {
+    if (this.drag.release(e) && this.faceId !== null) this.apply(this.currentDistance);
   }
 
   private beginOn(faceId: Id, worldPoint: Vec3): void {
@@ -123,6 +166,7 @@ export class PushPullTool extends BaseTool {
   }
 
   override cancel(): void {
+    this.drag.reset();
     this.faceId = null;
     this.startPoint = null;
     this.currentDistance = 0;
@@ -687,6 +731,7 @@ export class OffsetTool extends BaseTool {
   private distance = 0;
   private previewRing: Vec3[] = [];
   private lastDistance = 0;
+  private readonly drag = new DragGesture();
 
   override onPointerMove(e: PointerInfo): void {
     if (this.faceId === null) {
@@ -732,9 +777,15 @@ export class OffsetTool extends BaseTool {
       if (!hit) return;
       this.faceId = hit.id;
       this.setHovered({ kind: 'face', id: hit.id });
+      this.drag.press(e, true);
       return;
     }
+    this.drag.press(e, false);
     this.apply(this.distance);
+  }
+
+  override onPointerUp(e: PointerInfo): void {
+    if (this.drag.release(e) && this.faceId !== null) this.apply(this.distance);
   }
 
   override onDoubleClick(e: PointerInfo): void {
@@ -770,6 +821,7 @@ export class OffsetTool extends BaseTool {
   }
 
   override cancel(): void {
+    this.drag.reset();
     this.faceId = null;
     this.previewRing = [];
     this.distance = 0;
