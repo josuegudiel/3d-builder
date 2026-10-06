@@ -25,6 +25,14 @@ npm test         # 357 pruebas del núcleo geométrico
 4. Con **L** dibuja líneas sobre las caras: cada contorno cerrado se convierte
    en una cara nueva que también puedes empujar.
 5. **D** acota, **T** mide, **Ctrl+G** agrupa y el doble clic entra en el grupo.
+6. **N** mide ángulos: señala una arista y verás su diedro; elige dos aristas,
+   dos caras o dos piezas y te dirá el ángulo que forman.
+
+Para montar una estructura con piezas de escuadría —dos 2×4 que se cruzan, por
+ejemplo— inserta cada una desde **Insertar ▸ Caja**, colócalas y selecciona las
+dos: el panel de información ya dice con qué ángulo se encuentran y con qué
+inglete hay que cortar cada extremo. **Sólidos ▸ Unir** las convierte en una
+sola pieza y abre el informe completo del corte.
 
 El cuadro de medidas (abajo a la derecha) acepta:
 
@@ -48,7 +56,10 @@ puntos).
 
 **Modificación** — Empujar/Tirar, Mover, Rotar, Escalar, Equidistancia, Sígueme.
 
-**Utilidades** — Borrar, Pintar, Metro, Acotar, Transportador.
+**Utilidades** — Borrar, Pintar, Metro, Acotar, Transportador, Ángulo.
+
+**Sólidos** — Unir, Restar, Intersecar y «Intersecar caras», en el menú
+**Sólidos**.
 
 **Navegación** — Orbitar, Desplazar, Zoom. La rueda hace zoom hacia el cursor y
 el botón central orbita desde cualquier herramienta (con Mayús, desplaza).
@@ -148,6 +159,93 @@ de prioridad de SketchUp y descartando lo que queda oculto tras una cara.
 
 ---
 
+### Ángulos
+
+Los ángulos se guardan en radianes y se convierten a grados sólo al escribir
+texto, igual que las longitudes viven en metros. Hay tres lecturas distintas y
+conviene no mezclarlas:
+
+- entre **vectores**, 0…180°: ⟨1,0,0⟩ y ⟨−1,0,0⟩ forman 180°;
+- entre **rectas**, 0…90°: una recta no tiene sentido, así que 170° y 10°
+  describen la misma pareja;
+- el **diedro** de una arista, que se mide por dentro del material: 90° en el
+  canto de una caja, 180° si las dos caras continúan y 270° en un rincón
+  entrante.
+
+El diedro necesita el signo, y ese signo sale de girar alrededor de la propia
+arista en el sentido en que la recorre la primera cara:
+
+    θ = 180° − ángulo_con_signo(n₁, n₂, d₁)
+
+con n₁ y n₂ las normales exteriores y d₁ el sentido de recorrido.
+
+Esa lectura sólo tiene sentido si hay un «dentro» que medir, así que se
+comprueba antes que las caras formen una cáscara cerrada y bien orientada. En
+caras sueltas, 90° y 270° describirían el mismo pliegue y cuál de los dos
+saliera dependería únicamente del sentido en que se dibujó cada polígono; en
+ese caso se devuelve el que no pasa de 180°, que es el único dato que la
+geometría respalda.
+
+### Inglete y bisel
+
+Un corte es un plano, y una sierra de inglete tiene dos mandos. Partiendo de un
+corte a escuadra —el plano perpendicular al eje de la pieza— la hoja gira
+`inglete` alrededor de la normal de la cara que apoya en la mesa y se inclina
+`bisel` alrededor del ancho:
+
+    m = R_z(inglete) · R_y(bisel) · eje
+
+Invertir esa expresión da los dos mandos a partir de cualquier plano de corte.
+Para dos piezas que se encuentran, el plano que las corta a las dos es la
+bisectriz de sus direcciones, cuya normal es la diferencia de los dos vectores
+unitarios; de ahí sale la cuenta que hace un carpintero, **90° − γ/2**, cuando
+las dos apoyan en el mismo plano, y el corte compuesto correcto cuando no.
+
+Para saber cuál es el eje de una pieza se calcula su caja envolvente orientada
+probando los marcos que definen sus propias normales de cara y quedándose con
+el de menor volumen: para un prisma recto el resultado es exacto. La medida
+mayor es el largo, la menor el grueso, y si la sección coincide con una
+escuadría comercial se la llama por su nombre (1½″ × 3½″ = **2×4**).
+
+### Booleanas
+
+Para que dos piezas que se cruzan se unan de verdad hace falta partir y
+clasificar:
+
+1. Se calculan las aristas de intersección: dos caras no coplanares se cortan a
+   lo largo de la recta común a sus planos, y el trozo útil es el que queda
+   dentro de las dos, así que se interseca el intervalo dentro de cada una.
+2. Se reconstruyen las caras de todos los planos implicados.
+3. Cada trozo de superficie se clasifica **mirando sus dos lados**: se toma un
+   punto interior y se mira si hay material justo por encima y justo por debajo.
+   Un trozo pertenece a la superficie del resultado si, y sólo si, sus dos lados
+   son distintos; y ese mismo dato dice hacia dónde debe mirar la cara, que es
+   siempre hacia el lado que queda fuera.
+
+La misma regla vale para unir, restar e intersecar, y resuelve sola los casos
+que suelen dar guerra: caras que se apoyan una contra otra, piezas que sólo se
+tocan por un canto y trozos de superficie que quedan encerrados. Al final se
+quitan las costuras coplanares, como hacen las herramientas de sólidos de
+SketchUp, y se vuelve a clasificar, porque reconstruir un plano puede resucitar
+regiones que la operación había descartado.
+
+Saber si un punto está dentro de un sólido se resuelve disparando un rayo y
+contando cuántas veces atraviesa la cáscara. Si un rayo pasa demasiado cerca de
+una arista el recuento no es de fiar, así que esa dirección se descarta y se
+prueba otra; la respuesta se decide por mayoría entre las direcciones limpias.
+Los triángulos se recorren a través de un árbol de cajas envolventes: sin él,
+unir dos esferas de 32 segmentos costaba casi cinco segundos.
+
+Dos detalles importan más de lo que parece. El primero es a qué distancia se
+mira a cada lado de una cara: cualquier valor mayor que el rasgo más fino del
+modelo se lo come, así que se toma justo por encima de la resolución de los
+números en coma flotante, muy por debajo de la tolerancia de soldadura. El
+segundo es qué caras entran en la operación: compartir plano no basta —el suelo
+de una casa a cincuenta metros también está en z = 0—, así que además tienen
+que caer dentro de la caja de las dos piezas. Y las costuras coplanares sólo se
+quitan donde las piezas se solapan: una línea que el usuario dibujó para
+dividir una cara no es un resto de la booleana.
+
 ## Mapa del código
 
 ```
@@ -156,14 +254,15 @@ src/core/units.ts     parseo y formato métrico e imperial
 src/core/model/       Geometry (con validate()), Model, definiciones, cotas y guías
 src/core/topology/    arrangement, insert, rebuild, weld, orient, repair,
                       triangulate, keys, loops
+src/core/measure/     ángulos, diedros, inglete y bisel, piezas y uniones
 src/core/ops/         draw, erase, pushpull, transform, offset, followme,
-                      primitives, solids, group
+                      primitives, solids, group, intersect, boolean
 src/core/io/          serialize (JSON), obj, stl
 src/core/history.ts   deshacer/rehacer
 src/render/           cámara orbital Z-arriba, escena, superposición, viewport
 src/pick/             selección por rayo y motor de inferencia
 src/app/              editor (núcleo) y guardado automático
-src/tools/            las 21 herramientas
+src/tools/            las 22 herramientas
 src/ui/               interfaz completa
 ```
 
@@ -176,27 +275,33 @@ cara) y se usa en las pruebas después de cada operación.
 ## Pruebas
 
 ```bash
-npm test          # 358 pruebas del núcleo geométrico
-npm run test:e2e  # 185 comprobaciones conduciendo la aplicación en Chromium
+npm test          # 461 pruebas del núcleo geométrico
+npm run test:e2e  # 228 comprobaciones conduciendo la aplicación en Chromium
                   # (construye, sirve, prueba y apaga el servidor)
 npm run verify    # tipos + núcleo + navegador, todo seguido
 ```
 
 Las pruebas del núcleo cubren la formación de caras, agujeros anidados,
 empujar/tirar en todos sus modos, sólidos paramétricos con volúmenes exactos,
-robustez numérica de milímetros a kilómetros, unidades y entrada/salida. Hay
+robustez numérica de milímetros a kilómetros, unidades y entrada/salida. El
+sistema de ángulos se comprueba aparte: diedros de 90°, 180° y 270°, la
+reconstrucción de cualquier pareja inglete/bisel a partir del plano que
+generan, el reconocimiento de escuadrías y los volúmenes exactos de uniones,
+restas e intersecciones. Hay
 además pruebas de flujos completos —un cerramiento hueco con muros de 200 mm,
 una escalera de seis peldaños, una mesa con patas como componente compartido— y
 una batería de regresiones con el caso concreto que disparaba cada fallo
 corregido.
 
-Las pruebas de navegador conducen la aplicación real y ejercitan las veintiuna
+Las pruebas de navegador conducen la aplicación real y ejercitan las veintidós
 herramientas: dibujan con medidas exactas, extruyen, deshacen, dividen caras,
 agrupan, acotan, miden, pintan y exportan, verificando el volumen del sólido y
 los invariantes de la topología tras cada paso. Comprueban además cosas que
 sólo se ven en pantalla —que cada capa del entorno pinta píxeles, que la
 rejilla no atraviesa las caras sólidas— y reproducen cada problema de interfaz
-que se ha corregido, para que no vuelva.
+que se ha corregido, para que no vuelva. Una batería aparte monta dos 2×4 en
+escuadra, comprueba que la aplicación anuncia 90° y un inglete de 45° en cada
+pieza, las une y verifica que el volumen resultante descuenta el solape.
 
 ---
 
@@ -219,6 +324,16 @@ api.isSolid();         // true
 api.validate();        // [] si la topología está sana
 
 api.solid('cylinder', { radius: 0.5, height: 2, segments: 32 });
+
+// Ángulos y uniones
+api.dihedral(aristaId);                 // grados; null si no tiene dos caras
+api.angleBetweenEdges(a, b);            // grados
+const [p1, p2] = api.instances();
+api.memberText(p1);                     // "2×4 (38.1 mm × 88.9 mm) · 2400 mm"
+api.jointText(p1, p2);                  // "Esquina: 90° · inglete 45° …"
+api.jointAngles(p1, p2);                // { angle, cuts: [{ miter, bevel }, …] }
+api.union(p1, p2);                      // también subtract e intersectSolids
+api.groupVolume(api.instances()[0]);
 api.view('front');
 api.exportSTL();
 ```
@@ -230,8 +345,8 @@ Cada llamada que modifica el modelo queda registrada en el historial, así que
 
 ## Límites conocidos
 
-- Empujar una cara **a través** de un sólido no perfora un agujero: se permite
-  la operación, pero no hay booleanas todavía.
+- Empujar una cara **a través** de un sólido no perfora un agujero por sí solo:
+  para vaciar hay que usar **Sólidos ▸ Restar**.
 - No hay texturas ni coordenadas UV; los materiales son colores con opacidad.
 - Sígueme funciona con el recorrido seleccionado de antemano.
 - El guardado automático usa el almacenamiento local del navegador; para

@@ -942,8 +942,9 @@ async function main() {
   await moveCanvas(page, alongX[0], alongX[1]);
   await page.waitForTimeout(150);
   const tip = await page.evaluate(() => {
-    const el = document.querySelector('.inference-tip');
-    return { text: el ? el.textContent : null, visible: el ? el.classList.contains('visible') : false };
+    const el = document.querySelector('.cursor-hud');
+    const snap = el ? el.querySelector('.hud-snap') : null;
+    return { text: snap ? snap.textContent : null, visible: el ? el.classList.contains('visible') : false };
   });
   check('la etiqueta de inferencia dice "En el eje rojo"',
     tip.text === 'En el eje rojo', JSON.stringify(tip));
@@ -955,7 +956,7 @@ async function main() {
   ]);
   await moveCanvas(page, alongY[0], alongY[1]);
   await page.waitForTimeout(150);
-  const tipY = await page.evaluate(() => document.querySelector('.inference-tip')?.textContent);
+  const tipY = await page.evaluate(() => document.querySelector('.cursor-hud .hud-snap')?.textContent);
   check('hacia +Y la etiqueta dice "En el eje verde"', tipY === 'En el eje verde',
     JSON.stringify(tipY));
 
@@ -990,7 +991,7 @@ async function main() {
   const erroresAntes = consoleErrors.length;
   await moveCanvas(page, onRedAxis[0], onRedAxis[1]);
   await page.waitForTimeout(150);
-  const tipRect = await page.evaluate(() => document.querySelector('.inference-tip')?.textContent);
+  const tipRect = await page.evaluate(() => document.querySelector('.cursor-hud .hud-snap')?.textContent);
   check('el cursor está sobre la inferencia del eje rojo', tipRect === 'En el eje rojo',
     JSON.stringify(tipRect));
   const rectCrash = consoleErrors.slice(erroresAntes);

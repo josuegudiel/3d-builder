@@ -18,6 +18,24 @@ export interface Dimension {
   text: string;
 }
 
+/**
+ * Cota angular: el ángulo que forman dos direcciones que salen de un vértice.
+ * Se guarda por puntos, no por entidades, para que siga siendo válida aunque
+ * la geometría que la originó se vuelva a construir.
+ */
+export interface AngleDimension {
+  readonly id: Id;
+  /** Vértice del ángulo. */
+  vertex: Vec3;
+  /** Un punto sobre cada lado. */
+  a: Vec3;
+  b: Vec3;
+  /** Radio del arco dibujado, en metros. */
+  radius: number;
+  /** Texto propio; si está vacío se muestra el ángulo medido. */
+  text: string;
+}
+
 /** Línea o punto de guía (construcción), como los del Metro de SketchUp. */
 export interface Guide {
   readonly id: Id;
@@ -48,6 +66,8 @@ export class Model {
   readonly materials = new Map<string, Material>();
   /** Cotas del modelo, en el espacio raíz. */
   readonly dimensions = new Map<Id, Dimension>();
+  /** Cotas angulares, también en el espacio raíz. */
+  readonly angleDimensions = new Map<Id, AngleDimension>();
   /** Guías de construcción, en el espacio raíz. */
   readonly guides = new Map<Id, Guide>();
 
@@ -143,6 +163,28 @@ export class Model {
     const id = this.ids.alloc();
     this.dimensions.set(id, { id, a, b, offset, text });
     return id;
+  }
+
+  /**
+   * Añade una cota angular. El radio, si no se indica, se ajusta a la
+   * distancia menor de los dos lados para que el arco quepa dentro del ángulo.
+   */
+  addAngleDimension(vertex: Vec3, a: Vec3, b: Vec3, radius = 0, text = ''): Id | null {
+    const da = Math.hypot(a.x - vertex.x, a.y - vertex.y, a.z - vertex.z);
+    const db = Math.hypot(b.x - vertex.x, b.y - vertex.y, b.z - vertex.z);
+    // Sin dos lados no hay ángulo: guardar una cota así dejaría en el modelo
+    // una anotación invisible que nadie podría encontrar para borrarla.
+    if (da <= 1e-9 || db <= 1e-9) return null;
+    const id = this.ids.alloc();
+    const r = radius > 0 ? radius : Math.max(1e-6, Math.min(da, db) * 0.4);
+    this.angleDimensions.set(id, { id, vertex, a, b, radius: r, text });
+    return id;
+  }
+
+  /** Borra todas las cotas, lineales y angulares. */
+  clearDimensions(): void {
+    this.dimensions.clear();
+    this.angleDimensions.clear();
   }
 
   /** Añade una guía de construcción. */

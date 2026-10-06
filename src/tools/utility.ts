@@ -4,13 +4,13 @@ import { Overlay } from '../render/overlay';
 import { THEME } from '../render/theme';
 import {
   Vec3, v3, add, sub, mul, dot, cross, normalize, length, distance, addScaled,
-  midpoint, signedAngle, AXIS_Z, AXIS_X,
+  midpoint, signedAngle, rotateAround, AXIS_Z, AXIS_X,
 } from '../core/math/vec';
 import { EPS } from '../core/math/tolerance';
 import { Id } from '../core/model/types';
 import { pickEntity, pickFace } from '../pick/picker';
 import { eraseEdges, eraseFaces, eraseInstances } from '../core/ops/erase';
-import { formatLength, formatAngle, parseLength } from '../core/units';
+import { formatLength, formatAngle, parseLength, parseAngle } from '../core/units';
 import { selectCoplanar } from '../core/selection';
 
 // ---------------------------------------------------------------------------
@@ -293,7 +293,10 @@ export class DimensionTool extends BaseTool {
     const hit = this.updateInference(e);
 
     if (this.a && !this.b) {
-      this.editor.showMeasurement('Longitud', formatLength(distance(this.a, hit.point), this.editor.units));
+      // Informativo: una cota mide lo que hay, no impone una longitud.
+      this.editor.showMeasurement(
+        'Longitud', formatLength(distance(this.a, hit.point), this.editor.units), false,
+      );
     } else if (this.a && this.b) {
       // La separación se mide perpendicularmente al segmento acotado.
       const dir = sub(this.b, this.a);
@@ -303,7 +306,7 @@ export class DimensionTool extends BaseTool {
         const rel = sub(hit.point, this.a);
         this.offset = sub(rel, mul(u, dot(rel, u)));
       }
-      this.editor.showMeasurement('Longitud', formatLength(l, this.editor.units));
+      this.editor.showMeasurement('Longitud', formatLength(l, this.editor.units), false);
     }
     this.editor.refreshOverlay();
   }
@@ -432,6 +435,27 @@ export class ProtractorTool extends BaseTool {
       });
     }
     this.cancel();
+  }
+
+  /** Ángulo exacto: coloca la guía girando el primer lado lo que se escriba. */
+  override onMeasurement(text: string): boolean {
+    if (!this.center || !this.first) return false;
+    const ang = parseAngle(text);
+    if (ang === null || !Number.isFinite(ang)) return false;
+    const u = sub(this.first, this.center);
+    const radius = length(u);
+    if (radius <= EPS) return false;
+
+    const centre = this.center;
+    const end = addScaled(centre, rotateAround(normalize(u), this.axis, ang), radius);
+    const rootA = this.editor.toRoot(centre);
+    const rootB = this.editor.toRoot(end);
+    this.editor.edit('Guía angular', () => {
+      this.editor.model.addGuide('line', rootA, rootB);
+    });
+    this.editor.setStatus(`Guía a ${formatAngle(Math.abs(ang), this.editor.units)}.`);
+    this.cancel();
+    return true;
   }
 
   override cancel(): void {

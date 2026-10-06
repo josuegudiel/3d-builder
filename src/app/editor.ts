@@ -7,11 +7,24 @@ import { Plane, planeTransform } from '../core/math/plane';
 import { Viewport } from '../render/viewport';
 import { RenderOptions, DEFAULT_RENDER_OPTIONS } from '../render/scene';
 import { History } from '../core/history';
+import { faceComponent, isOrientedShell } from '../core/topology/orient';
 import {
   Selection, emptySelection, clearSelection, pruneSelection, describeSelection,
 } from '../core/selection';
 import { UnitSettings, DEFAULT_UNITS } from '../core/units';
 import { Tool } from '../tools/base';
+
+/**
+ * Una lectura del cuadro de medidas: la longitud, el ángulo, el radio… Las
+ * herramientas publican varias a la vez porque al dibujar interesan juntas
+ * (cuánto mide el segmento Y con qué ángulo sale). La primera que sea
+ * `editable` es la que recibe lo que se teclea.
+ */
+export interface MeasureField {
+  label: string;
+  value: string;
+  editable?: boolean;
+}
 
 export interface EditorEvents {
   /** El modelo o la selección han cambiado. */
@@ -22,6 +35,8 @@ export interface EditorEvents {
   onStatus?: (text: string) => void;
   /** El cuadro de medidas debe mostrar este valor. */
   onMeasurement?: (label: string, value: string, editable: boolean) => void;
+  /** Todas las lecturas vivas, para el cartel que sigue al cursor. */
+  onMeasurements?: (fields: MeasureField[]) => void;
   /** Etiqueta flotante junto al cursor (inferencia). */
   onTooltip?: (text: string, x: number, y: number) => void;
   /** Ha cambiado el contexto de edición (entrar/salir de un grupo). */
@@ -204,7 +219,20 @@ export class Editor {
   }
 
   showMeasurement(label: string, value: string, editable = true): void {
-    this.events.onMeasurement?.(label, value, editable);
+    this.showMeasurements(label || value ? [{ label, value, editable }] : []);
+  }
+
+  /**
+   * Publica todas las lecturas de golpe. La barra inferior sólo tiene sitio
+   * para una —la que se puede teclear—, mientras que el cartel del cursor las
+   * enseña todas.
+   */
+  showMeasurements(fields: readonly MeasureField[]): void {
+    const primary = fields.find((f) => f.editable !== false) ?? fields[0];
+    this.events.onMeasurement?.(
+      primary?.label ?? '', primary?.value ?? '', primary?.editable ?? false,
+    );
+    this.events.onMeasurements?.([...fields]);
   }
 
   // -------------------------------------------------------------------------
@@ -213,6 +241,7 @@ export class Editor {
 
   /** Reconstruye la escena completa (tras un cambio en el modelo). */
   refreshModel(): void {
+    this.shellMemo.clear();
     pruneSelection(this.selection, this.geometry);
     this.renderOptions.context = this.contextPath;
     this.renderOptions.selection = this.selection;
@@ -220,6 +249,28 @@ export class Editor {
     this.refreshOverlay();
     this.events.onModelChanged?.();
   }
+
+  /**
+   * ¿Pertenece la cara a una cáscara cerrada y bien orientada?
+   *
+   * Responderlo exige recorrer toda la componente, y el ángulo diedro lo
+   * pregunta en cada movimiento del ratón: sin recordar la respuesta, pasar el
+   * cursor por una esfera de cuatro mil caras costaba 37 ms por movimiento. Se
+   * guarda para TODAS las caras de la componente de una vez y se olvida en
+   * `refreshModel`, que es por donde pasa cualquier cambio del modelo.
+   */
+  shellOf(faceId: Id): boolean {
+    const cached = this.shellMemo.get(faceId);
+    if (cached !== undefined) return cached;
+    const geo = this.geometry;
+    if (!geo.faces.has(faceId)) return false;
+    const component = faceComponent(geo, faceId);
+    const ok = isOrientedShell(geo, component);
+    for (const f of component) this.shellMemo.set(f, ok);
+    return ok;
+  }
+
+  private readonly shellMemo = new Map<Id, boolean>();
 
   /** Redibuja sólo la capa de superposición (previsualizaciones). */
   refreshOverlay(): void {
@@ -279,7 +330,10 @@ export class Editor {
 
   undo(): void {
     const restored = this.history.undo(this.model);
-    if (!restored) return;
+    if (!restored) {
+      this.setStatus('No hay nada que deshacer.');
+      return;
+    }
     this.model = restored;
     this.clampContext();
     clearSelection(this.selection);
@@ -288,7 +342,10 @@ export class Editor {
 
   redo(): void {
     const restored = this.history.redo(this.model);
-    if (!restored) return;
+    if (!restored) {
+      this.setStatus('No hay nada que rehacer.');
+      return;
+    }
     this.model = restored;
     this.clampContext();
     clearSelection(this.selection);
@@ -303,6 +360,9 @@ export class Editor {
 
   /** Sustituye el modelo completo (al abrir un archivo). */
   replaceModel(model: Model): void {
+    // La herramienta activa puede tener puntos del modelo anterior: sin
+    // cancelarla, el siguiente clic dibujaba desde una esquina que ya no existe.
+    this.tool.cancel?.();
     this.model = model;
     this.contextPath = [];
     clearSelection(this.selection);

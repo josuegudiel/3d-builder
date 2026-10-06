@@ -1,6 +1,7 @@
 import { Geometry } from '../model/geometry';
 import { Id } from '../model/types';
 import { mul, dot, cross } from '../math/vec';
+import { planeBasis, to2D, to3D } from '../math/plane';
 import { reverseLoop } from './loops';
 import { triangulateFace } from './triangulate';
 
@@ -165,6 +166,94 @@ export function isSolid(geo: Geometry, faceIds: Iterable<Id>): boolean {
     for (const f of users) if (!set.has(f)) return false;
   }
   return true;
+}
+
+/**
+ * ¿Forman las caras una cáscara CERRADA Y BIEN ORIENTADA, con las normales
+ * hacia fuera? Es la condición para que exista un "dentro", y por tanto para
+ * que tenga sentido un ángulo diedro reflejo.
+ *
+ * Se pide que el conjunto sea UNA sola componente conexa —dos cáscaras juntas
+ * pueden compensarse en volumen y dar un veredicto que no vale para ninguna de
+ * las dos—, que cada arista tenga exactamente dos caras recorriéndola en
+ * sentidos opuestos y que el volumen con signo sea positivo.
+ *
+ * Una línea que el usuario haya dibujado DENTRO de una cara la recorre dos
+ * veces con la misma cara: no abre la cáscara y no cuenta como frontera.
+ */
+export function isOrientedShell(geo: Geometry, faceIds: Iterable<Id>): boolean {
+  const set = new Set([...faceIds].filter((f) => geo.faces.has(f)));
+  if (set.size < 4) return false;
+
+  // Una sola componente conexa.
+  const first = set.values().next().value as Id;
+  const component = faceComponent(geo, first);
+  if (component.length !== set.size) return false;
+  for (const f of component) if (!set.has(f)) return false;
+
+  for (const fid of set) {
+    // Cuántas veces recorre cada cara cada una de sus aristas.
+    const seen = new Map<Id, number>();
+    for (const eid of geo.faceEdges(fid)) seen.set(eid, (seen.get(eid) ?? 0) + 1);
+
+    for (const [eid, veces] of seen) {
+      const users = [...(geo.edgeFaces.get(eid) ?? [])].filter((f) => set.has(f));
+      // Costura interior: la misma cara entra y sale por ella. No es frontera.
+      if (veces === 2 && users.length === 1) continue;
+      if (veces !== 1 || users.length !== 2) return false;
+      const d1 = traversalDir(geo, users[0], eid);
+      const d2 = traversalDir(geo, users[1], eid);
+      if (d1 === null || d2 === null || d1 === d2) return false;
+    }
+  }
+
+  return polygonShellVolume(geo, set) > 0;
+}
+
+/**
+ * Volumen con signo de una cáscara, calculado por caras completas en vez de por
+ * triángulos: V = ⅓·Σ ⟨n, centroide⟩·área.
+ *
+ * Es exacto para caras planas con agujeros y no pasa por la triangulación, que
+ * es lo que hacía que comprobar una esfera de 2200 caras costara diez
+ * milisegundos en cada movimiento del ratón.
+ */
+export function polygonShellVolume(geo: Geometry, faceIds: Iterable<Id>): number {
+  let vol = 0;
+  for (const fid of faceIds) {
+    const f = geo.faces.get(fid);
+    if (!f || f.loops.length === 0) continue;
+    const basis = planeBasis(f.plane);
+
+    let area = 0;
+    let cx = 0;
+    let cy = 0;
+    for (const loop of f.loops) {
+      const pts = loop.vertices.map((v) => to2D(basis, geo.vertexPos(v)));
+      const n = pts.length;
+      let a = 0;
+      let sx = 0;
+      let sy = 0;
+      for (let i = 0; i < n; i++) {
+        const p = pts[i];
+        const q = pts[(i + 1) % n];
+        const cross = p.x * q.y - q.x * p.y;
+        a += cross;
+        sx += (p.x + q.x) * cross;
+        sy += (p.y + q.y) * cross;
+      }
+      a *= 0.5;
+      area += a;
+      if (Math.abs(a) > 1e-300) {
+        cx += sx / 6;
+        cy += sy / 6;
+      }
+    }
+    if (Math.abs(area) <= 1e-300) continue;
+    const centre = to3D(basis, { x: cx / area, y: cy / area });
+    vol += dot(f.plane.n, centre) * Math.abs(area);
+  }
+  return vol / 3;
 }
 
 /** Componente conexa de caras (por aristas compartidas) que contiene `seed`. */

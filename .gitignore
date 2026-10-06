@@ -5,3 +5,11 @@ dist/
 .vite/
 coverage/
 .shots/
+
+# Guiones de sondeo de las auditorías: son temporales y no forman parte del
+# proyecto. Las pruebas de verdad viven en tests/.
+probe-*
+qa-probe/
+probe*.config.ts
+audit-*
+audit*.config.ts
