@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Casa 7 × 14.40</title>
+<meta name="description" content="Modelo 3D interactivo de la casa de 7 × 14.40 m. Gíralo, quita el techo y mira las medidas.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Casa 7 × 14.40 — modelo 3D">
+<meta property="og:description" content="Modelo 3D interactivo de la casa de 7 × 14.40 m. Gíralo, quita el techo y mira las medidas.">
+<meta property="og:image" content="https://josuegudiel.github.io/3d-builder/casa/vista.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://josuegudiel.github.io/3d-builder/casa/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M8 30 32 10l24 20v26H8z' fill='%23e2a300'/%3E%3Cpath d='M26 56V40h12v16' fill='%231c232b'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&family=Public+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: el modelo 3D ocupa toda la pantalla; ficha técnica arriba a la izquierda,
+     barra de vistas y capas abajo, como la tira de rótulos de un plano. */
+  :root {
+    --bg: #dde4ea;
+    --sky: #cad8e4;
+    --panel: rgba(248, 249, 246, 0.94);
+    --fg: #1c232b;
+    --muted: #55606c;
+    --line: #c3cbd3;
+    --chip: #edf0f3;
+    --accent: #e2a300;
+    --accent-ink: #1e1a0e;
+    --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+    --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121820;
+      --sky: #1a2430;
+      --panel: rgba(21, 27, 35, 0.92);
+      --fg: #e6ebf0;
+      --muted: #9ba7b3;
+      --line: #2e3945;
+      --chip: #212b36;
+      --accent: #f0b429;
+      --accent-ink: #1e1a0e;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121820;
+    --sky: #1a2430;
+    --panel: rgba(21, 27, 35, 0.92);
+    --fg: #e6ebf0;
+    --muted: #9ba7b3;
+    --line: #2e3945;
+    --chip: #212b36;
+    --accent: #f0b429;
+    --accent-ink: #1e1a0e;
+    color-scheme: dark;
+  }
+
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    overflow: hidden;
+  }
+  #scene { position: fixed; inset: 0; }
+  #scene canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+
+  .card {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 16px);
+    left: 16px;
+    max-width: min(30rem, calc(100% - 32px));
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.85rem 1rem 0.9rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    backdrop-filter: blur(6px);
+  }
+  .card h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.75rem;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    text-wrap: balance;
+  }
+  .card h1 span { color: var(--muted); font-weight: 600; }
+  .specs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
+  .specs li {
+    font-family: var(--font-num);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    padding: 0.2rem 0.45rem;
+    border-radius: 5px;
+    background: var(--chip);
+    color: var(--fg);
+    white-space: nowrap;
+  }
+  .specs li b { font-family: var(--font-body); font-weight: 500; color: var(--muted); margin-right: 0.3em; }
+  .status { margin: 0; font-size: 0.8rem; color: var(--muted); }
+
+  .toolbar {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 0.75rem;
+    pointer-events: none;
+  }
+  .group {
+    pointer-events: auto;
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.55rem 0.6rem 0.6rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    backdrop-filter: blur(6px);
+    min-width: 0;
+  }
+  .group-label {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-inline: 0.15rem;
+  }
+  .buttons { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+  button {
+    font: 500 0.88rem/1 var(--font-body);
+    color: var(--fg);
+    background: var(--chip);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 0.5rem 0.7rem;
+    cursor: pointer;
+    min-height: 2.25rem;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  .hint {
+    position: fixed;
+    right: 16px;
+    top: calc(env(safe-area-inset-top, 0px) + 16px);
+    margin: 0;
+    max-width: 17rem;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.55rem 0.75rem;
+  }
+  @media (max-width: 760px) {
+    .hint { display: none; }
+    .card { padding: 0.65rem 0.75rem; gap: 0.4rem; }
+    .card h1 { font-size: 1.4rem; }
+    .specs li { font-size: 0.66rem; }
+    .toolbar { gap: 0.5rem; }
+    .group { padding: 0.45rem 0.5rem 0.5rem; }
+    button { padding: 0.45rem 0.55rem; font-size: 0.82rem; min-height: 2.1rem; }
+  }
+  @media (max-width: 420px) {
+    .specs li:nth-child(n+5) { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="scene" aria-label="Modelo 3D de la casa. Arrastra para girar."></div>
+
+<header class="card">
+  <h1>Casa 7 <span>×</span> 14.40</h1>
+  <ul class="specs" aria-label="Datos de la casa">
+    <li><b>Block</b>15 cm</li>
+    <li><b>Muros</b>2.80 m</li>
+    <li><b>Cumbrera</b>3.30 m</li>
+    <li><b>Puertas</b>1.00 × 2.10</li>
+    <li><b>Ventanas</b>1.00 × 1.00</li>
+    <li><b>Piso al frente</b>+1.00 m</li>
+  </ul>
+  <p class="status" id="status">Cargando el modelo…</p>
+</header>
+
+<p class="hint">Arrastra para girar. Rueda o pellizca para acercar. Clic derecho o dos dedos para mover.</p>
+
+<nav class="toolbar" aria-label="Controles del modelo">
+  <div class="group" role="group" aria-labelledby="lbl-vista">
+    <span class="group-label" id="lbl-vista">Vista</span>
+    <div class="buttons">
+      <button type="button" id="v-34" data-view="34" aria-pressed="true">3/4</button>
+      <button type="button" id="v-frente" data-view="frente" aria-pressed="false">Frente</button>
+      <button type="button" id="v-derecha" data-view="derecha" aria-pressed="false">Derecha</button>
+      <button type="button" id="v-atras" data-view="atras" aria-pressed="false">Atrás</button>
+      <button type="button" id="v-izquierda" data-view="izquierda" aria-pressed="false">Izquierda</button>
+      <button type="button" id="v-arriba" data-view="arriba" aria-pressed="false">Arriba</button>
+    </div>
+  </div>
+  <div class="group" role="group" aria-labelledby="lbl-capas">
+    <span class="group-label" id="lbl-capas">Mostrar</span>
+    <div class="buttons">
+      <button type="button" id="t-techo" data-toggle="techo" aria-pressed="true">Techo</button>
+      <button type="button" id="t-muebles" data-toggle="muebles" aria-pressed="true">Muebles</button>
+      <button type="button" id="t-puertas" data-toggle="puertas" aria-pressed="false">Puertas abiertas</button>
+      <button type="button" id="t-cotas" data-toggle="cotas" aria-pressed="false">Cotas</button>
+    </div>
+  </div>
+</nav>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const statusEl = document.getElementById('status');
+
+// ------------------------------------------------------------------ medidas
+// Coordenadas de planta: x de 0 a 7 (izquierda → derecha), y de 0 a 14.40
+// (fondo → frente), z = altura sobre piso terminado. En three.js: X = x,
+// Y = z, Z = y.
+const W = 7.0, L = 14.4, T = 0.15, H = T / 2;
+const ZW = 2.80, ZR = 3.30, YR = 8.40, OV = 0.40, RT = 0.06;
+const SF = (ZR - ZW) / (L - YR);
+const SB = (ZR - ZW) / YR;
+const YC = L - 1.50;                       // muro del comedor (porche de 1.50)
+const XP = 3.50, XB = 4.50;                 // ejes: muro de dormitorios y del baño
+const YD2 = 1.40, YD1 = 4.90, YS = 8.40, YSW = 10.90, YL = 2.80, YB = 4.90;
+const DOOR_H = 2.10, SILL = 1.10, HEAD = 2.10, INNER = 2.80;
+const zRoof = (y) => (y <= YR ? ZW + SB * y : ZW + SF * (L - y));
+const ground = (y) => (y <= 0 ? -0.30 : y >= YC ? -1.0 : -0.30 - 0.70 * (y / YC));
+
+// --------------------------------------------------------------- escena
+const host = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+host.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 3;
+controls.maxDistance = 90;
+controls.maxPolarAngle = Math.PI * 0.495;
+
+const hemi = new THREE.HemisphereLight(0xdfeaf5, 0x6b6150, 1.25);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff3df, 2.3);
+sun.position.set(-14, 22, 18);
+sun.target.position.set(3.5, 0, 7.2);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -17; sun.shadow.camera.right = 17;
+sun.shadow.camera.top = 17; sun.shadow.camera.bottom = -17;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 70;
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.02;
+scene.add(sun, sun.target);
+
+// ------------------------------------------------------------- materiales
+function stripeTexture(dark, light, stripes = 1) {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 8;
+  const g = c.getContext('2d');
+  for (let x = 0; x < 64; x++) {
+    const t = 0.5 + 0.5 * Math.cos((x / 64) * Math.PI * 2 * stripes);
+    const mix = (a, b) => Math.round(a + (b - a) * t);
+    g.fillStyle = `rgb(${mix(dark[0], light[0])},${mix(dark[1], light[1])},${mix(dark[2], light[2])})`;
+    g.fillRect(x, 0, 1, 8);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0, ...extra });
+const mat = {
+  wall: std(0xe9e6df),
+  base: std(0xb3b0a8),
+  floor: std(0xc8c5be, { roughness: 0.75 }),
+  concrete: std(0xbfbcb4),
+  roof: std(0x7f868d, { roughness: 0.6, metalness: 0.35 }),
+  roofTop: new THREE.MeshStandardMaterial({
+    map: stripeTexture([110, 117, 124], [176, 183, 190]),
+    roughness: 0.5, metalness: 0.4, side: THREE.DoubleSide,
+  }),
+  wood: std(0x8a5a36, { roughness: 0.7 }),
+  frame: std(0x3b4148, { roughness: 0.5, metalness: 0.3 }),
+  glass: new THREE.MeshStandardMaterial({ color: 0x9cc3db, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.38 }),
+  knob: std(0xc9ccd0, { roughness: 0.3, metalness: 0.8 }),
+  grass: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
+  shrub: std(0x5b7f3a),
+  cabinet: std(0x9e9a91),
+  counter: std(0xd9d6cf, { roughness: 0.5 }),
+  white: std(0xf3f3f1, { roughness: 0.4 }),
+  dark: std(0x2a2d31, { roughness: 0.5 }),
+  steel: std(0xc5c9cd, { roughness: 0.35, metalness: 0.6 }),
+  table: std(0x7a5235, { roughness: 0.65 }),
+  chair: std(0x5e3f29, { roughness: 0.7 }),
+};
+
+const shadowed = (m) => { m.castShadow = true; m.receiveShadow = true; return m; };
+
+// cajas en coordenadas de planta
+function box(x0, x1, y0, y1, z0, z1, material, parent) {
+  const m = shadowed(new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, z1 - z0, y1 - y0), material));
+  m.position.set((x0 + x1) / 2, (z0 + z1) / 2, (y0 + y1) / 2);
+  parent.add(m);
+  return m;
+}
+
+// ------------------------------------------------------------------ muros
+// Perfil en (u, v): u a lo largo del muro (coordenada absoluta de planta),
+// v = altura. Las puertas recortan el borde inferior; las ventanas son huecos.
+function wallShape(u0, u1, tops, doors, windows) {
+  const s = new THREE.Shape();
+  s.moveTo(u0, 0);
+  for (const [a, b, h] of [...doors].sort((p, q) => p[0] - q[0])) {
+    s.lineTo(a, 0); s.lineTo(a, h); s.lineTo(b, h); s.lineTo(b, 0);
+  }
+  s.lineTo(u1, 0);
+  for (let i = tops.length - 1; i >= 0; i--) s.lineTo(tops[i][0], tops[i][1]);
+  s.closePath();
+  for (const [a, b, v0, v1] of windows) {
+    const hole = new THREE.Path();
+    hole.moveTo(a, v0); hole.lineTo(b, v0); hole.lineTo(b, v1); hole.lineTo(a, v1); hole.closePath();
+    s.holes.push(hole);
+  }
+  return s;
+}
+
+const house = new THREE.Group();
+scene.add(house);
+
+// muro paralelo a x (espesor de y0 a y1)
+function wallX(x0, x1, y0, y1, top, { doors = [], wins = [] } = {}) {
+  const shape = wallShape(x0, x1, [[x0, top], [x1, top]], doors, wins);
+  const g = new THREE.ExtrudeGeometry(shape, { depth: y1 - y0, bevelEnabled: false });
+  const m = shadowed(new THREE.Mesh(g, mat.wall));
+  m.position.set(0, 0, y0);
+  house.add(m);
+}
+
+// muro paralelo a y (espesor de x0 a x1); topFn da la altura en cada y
+function wallY(x0, x1, y0, y1, topFn, { doors = [], wins = [] } = {}) {
+  const tops = [[y0, topFn(y0)]];
+  if (y0 < YR && YR < y1 && topFn(YR) !== topFn(y0)) tops.push([YR, topFn(YR)]);
+  tops.push([y1, topFn(y1)]);
+  const shape = wallShape(y0, y1, tops, doors, wins);
+  const g = new THREE.ExtrudeGeometry(shape, { depth: x1 - x0, bevelEnabled: false });
+  const m = shadowed(new THREE.Mesh(g, mat.wall));
+  m.rotation.y = -Math.PI / 2;
+  m.position.set(x1, 0, 0);
+  house.add(m);
+}
+
+const win = (a) => [a, a + 1.0, SILL, HEAD];
+const dr = (a) => [a, a + 1.0, DOOR_H];
+const flat = (h) => () => h;
+
+// vanos (de la planta)
+const P1 = 0.225, P2 = 0.25, P3 = 3.725, P4 = 7.225, P5 = 3.725, P6 = 3.675;
+const V1 = 1.95, V2 = 5.40, V3 = 11.90, V4 = 1.20, V5 = 5.50;
+
+// exteriores (rostro exterior en 0, 7, 0 y 14.40)
+wallX(0, W, 0, T, zRoof(T));
+wallY(0, T, 0, L, zRoof, { doors: [dr(P1)], wins: [win(V1), win(V2), win(V3)] });
+wallY(W - T, W, 0, YC, zRoof, { doors: [dr(P2)] });
+wallX(0, XP + H, L - T, L, zRoof(L - T), { wins: [win(V4)] });
+wallY(XP - H, XP + H, YC - T, L, zRoof);
+wallX(XP - H, W - T, YC - T, YC, zRoof(YC - T), { doors: [dr(P6)], wins: [win(V5)] });
+// interiores (a ejes)
+wallX(T, XP + H, YD2 - H, YD2 + H, INNER);
+wallX(T, XP - H, YD1 - H, YD1 + H, INNER);
+wallX(T, XP - H, YS - H, YS + H, INNER);
+wallY(XP - H, XP + H, YD2 - H, YSW, flat(INNER), { doors: [dr(P3), dr(P4)] });
+wallX(XB - H, W - T, YL - H, YL + H, INNER);
+wallX(XB - H, W - T, YB - H, YB + H, INNER);
+wallY(XB - H, XB + H, YL - H, YB + H, flat(INNER), { doors: [dr(P5)] });
+
+// --------------------------------------------- base, piso y escalones
+const FOOT = [[0, 0], [W, 0], [W, YC], [XP + H, YC], [XP + H, L], [0, L]];
+function slab(points, z0, z1, material) {
+  const s = new THREE.Shape(points.map(([x, y]) => new THREE.Vector2(x, -y)));
+  const g = new THREE.ExtrudeGeometry(s, { depth: z1 - z0, bevelEnabled: false });
+  const m = shadowed(new THREE.Mesh(g, material));
+  m.rotation.x = -Math.PI / 2;
+  m.position.y = z0;
+  house.add(m);
+}
+slab(FOOT, -1.15, -0.10, mat.base);
+slab(FOOT, -0.10, 0.0, mat.floor);
+
+box(XP + H, 5.40, YC, 13.80, -1.15, 0.0, mat.concrete, house);        // descanso
+box(XP + H, 6.10, YC, 14.30, -1.15, -1 / 3, mat.concrete, house);      // escalón
+box(XP + H, 6.80, YC, 14.95, -1.15, -2 / 3, mat.concrete, house);      // escalón
+box(-0.15, XP + H, L, 14.90, -1.15, -2 / 3, mat.concrete, house);      // acera
+box(W, 7.60, -0.20, 1.40, -0.45, 0.0, mat.concrete, house);            // descanso lavandería
+
+// ----------------------------------------------------- puertas y ventanas
+const doors = [];
+function door(px, py, closedDir, openDir) {
+  const pivot = new THREE.Group();
+  pivot.position.set(px, 0, py);
+  const leaf = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.98, DOOR_H - 0.01, 0.04), mat.wood));
+  leaf.position.set(0.5, (DOOR_H - 0.01) / 2, 0);
+  pivot.add(leaf);
+  for (const s of [-1, 1]) {
+    const k = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 8), mat.knob);
+    k.position.set(0.88, 1.0, s * 0.045);
+    pivot.add(k);
+  }
+  const ang = (d) => Math.atan2(-d[1], d[0]);
+  const a0 = ang(closedDir);
+  let a1 = ang(openDir);
+  while (a1 - a0 > Math.PI) a1 -= 2 * Math.PI;
+  while (a1 - a0 < -Math.PI) a1 += 2 * Math.PI;
+  pivot.rotation.y = a0;
+  house.add(pivot);
+  doors.push({ pivot, a0, a1 });
+}
+door(T - 0.02, P1 + 1.0, [0, -1], [1, 0]);            // acceso lateral
+door(W - T + 0.02, P2, [0, 1], [-1, 0]);              // lavandería
+door(XP - H + 0.02, P3 + 1.0, [0, -1], [-1, 0]);      // dormitorio 2
+door(XP - H + 0.02, P4 + 1.0, [0, -1], [-1, 0]);      // dormitorio 1
+door(XB + H - 0.02, P5 + 1.0, [0, -1], [1, 0]);       // baño
+door(P6 + 1.0, YC - T + 0.02, [-1, 0], [0, -1]);      // entrada principal
+
+function windowAt(axis, a, wallMid) {
+  // axis 'y': ventana en muro paralelo a y (a = y inicial); 'x': paralelo a x
+  const g = new THREE.Group();
+  const f = 0.05, d = 0.07, w = 1.0, h = HEAD - SILL;
+  const add = (geo, m, x, y) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, 0); o.castShadow = true; g.add(o); };
+  add(new THREE.BoxGeometry(w, f, d), mat.frame, w / 2, f / 2);
+  add(new THREE.BoxGeometry(w, f, d), mat.frame, w / 2, h - f / 2);
+  add(new THREE.BoxGeometry(f, h, d), mat.frame, f / 2, h / 2);
+  add(new THREE.BoxGeometry(f, h, d), mat.frame, w - f / 2, h / 2);
+  add(new THREE.BoxGeometry(0.035, h, d), mat.frame, w / 2, h / 2);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(w - 2 * f, h - 2 * f, 0.012), mat.glass);
+  glass.position.set(w / 2, h / 2, 0);
+  g.add(glass);
+  if (axis === 'y') { g.rotation.y = -Math.PI / 2; g.position.set(wallMid, SILL, a); }
+  else { g.position.set(a, SILL, wallMid); }
+  house.add(g);
+}
+windowAt('y', V1, H); windowAt('y', V2, H); windowAt('y', V3, H);
+windowAt('x', V4, L - H); windowAt('x', V5, YC - H);
+
+// ------------------------------------------------------------------ techo
+const roof = new THREE.Group();
+scene.add(roof);
+function roofSlab(yA, yB) {
+  // faldón entre la cumbrera (yA = YR) y el alero (yB, con volado)
+  const zA = zRoof(yA), zB = zRoof(yB);
+  const s = new THREE.Shape([new THREE.Vector2(yA, zA), new THREE.Vector2(yB, zB),
+    new THREE.Vector2(yB, zB + RT), new THREE.Vector2(yA, zA + RT)]);
+  const g = new THREE.ExtrudeGeometry(s, { depth: W + 2 * OV, bevelEnabled: false });
+  const m = shadowed(new THREE.Mesh(g, mat.roof));
+  m.rotation.y = -Math.PI / 2;
+  m.position.set(W + OV, 0, 0);
+  roof.add(m);
+  // lámina acanalada encima
+  const e = 0.004, x0 = -OV, x1 = W + OV;
+  const pos = new Float32Array([
+    x0, zA + RT + e, yA, x1, zA + RT + e, yA, x1, zB + RT + e, yB, x0, zB + RT + e, yB,
+  ]);
+  const reps = (x1 - x0) / 0.19;
+  const uv = new Float32Array([0, 0, reps, 0, reps, 1, 0, 1]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(yB > yA ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]);
+  geo.computeVertexNormals();
+  const top = new THREE.Mesh(geo, mat.roofTop);
+  top.receiveShadow = true;
+  roof.add(top);
+}
+roofSlab(YR, -OV);
+roofSlab(YR, L + OV);
+const ridge = shadowed(new THREE.Mesh(new THREE.BoxGeometry(W + 2 * OV + 0.04, 0.05, 0.34), mat.roof));
+ridge.position.set(W / 2, ZR + RT + 0.02, YR);
+roof.add(ridge);
+
+// --------------------------------------------------------------- muebles
+const furniture = new THREE.Group();
+house.add(furniture);
+// lavandería: lavadero y lavadora
+box(4.65, 5.45, YL - H - 0.58, YL - H, 0, 0.90, mat.concrete, furniture);
+box(5.07, 5.42, YL - H - 0.52, YL - H - 0.06, 0.86, 0.905, mat.dark, furniture);
+box(5.85, 6.50, YL - H - 0.65, YL - H, 0, 0.90, mat.white, furniture);
+{
+  const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.012, 28), mat.dark);
+  lid.position.set(6.175, 0.906, YL - H - 0.32);
+  furniture.add(lid);
+}
+// baño: lavamanos, inodoro, ducha
+const bt = YL + H, bb = YB - H, inR = W - T;
+box(XB + H + 0.03, XB + H + 0.61, bt + 0.01, bt + 0.45, 0, 0.85, mat.white, furniture);
+box(XB + H + 0.18, XB + H + 0.46, bt + 0.10, bt + 0.36, 0.80, 0.855, mat.steel, furniture);
+box(5.38, 5.88, bt + 0.01, bt + 0.21, 0, 0.80, mat.white, furniture);
+{
+  const bowl = shadowed(new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.17, 0.42, 24), mat.white));
+  bowl.scale.set(1, 1, 1.3);
+  bowl.position.set(5.63, 0.21, bt + 0.45);
+  furniture.add(bowl);
+}
+box(5.95, inR, bt, bb, 0, 0.05, mat.white, furniture);
+{
+  const g = new THREE.Mesh(new THREE.BoxGeometry(0.012, 2.0, bb - bt), mat.glass);
+  g.position.set(5.95, 1.05, (bt + bb) / 2);
+  furniture.add(g);
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.03, 20), mat.steel);
+  head.position.set(6.40, 2.0, bt + 0.15);
+  furniture.add(head);
+}
+// cocina: barra en L con estufa, tarja y refrigerador
+const ct = YB + H, cd = 0.60, ci = inR - cd;
+box(XB - H, inR, ct, ct + cd, 0, 0.86, mat.cabinet, furniture);
+box(XB - H, inR, ct, ct + cd + 0.02, 0.86, 0.90, mat.counter, furniture);
+box(ci, inR, ct + cd, 7.95, 0, 0.86, mat.cabinet, furniture);
+box(ci - 0.02, inR, ct + cd, 7.95, 0.86, 0.90, mat.counter, furniture);
+box(4.75, 5.35, ct + 0.02, ct + cd - 0.02, 0.90, 0.915, mat.dark, furniture);
+for (const [bx, by] of [[4.90, ct + 0.15], [5.20, ct + 0.15], [4.90, ct + 0.43], [5.20, ct + 0.43]]) {
+  const b = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.012, 20), mat.steel);
+  b.position.set(bx, 0.922, by);
+  furniture.add(b);
+}
+box(ci + 0.07, inR - 0.08, 6.25, 6.62, 0.86, 0.905, mat.steel, furniture);
+box(ci + 0.07, inR - 0.08, 6.63, 7.00, 0.86, 0.905, mat.steel, furniture);
+box(ci, inR, 7.95, 8.75, 0, 1.80, mat.white, furniture);
+// comedor: mesa y 8 sillas
+box(5.15, 6.35, 9.90, 11.30, 0.71, 0.75, mat.table, furniture);
+for (const [lx, ly] of [[5.2, 9.95], [6.3, 9.95], [5.2, 11.25], [6.3, 11.25]]) {
+  box(lx - 0.03, lx + 0.03, ly - 0.03, ly + 0.03, 0, 0.71, mat.table, furniture);
+}
+function chair(cx, cy, back) {
+  const w = 0.38, d = 0.32;
+  const along = back[0] === 0;          // respaldo hacia ±y → silla a lo largo de x
+  const sx = along ? w : d, sy = along ? d : w;
+  box(cx - sx / 2, cx + sx / 2, cy - sy / 2, cy + sy / 2, 0.42, 0.46, mat.chair, furniture);
+  for (const [ox, oy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    const x = cx + ox * (sx / 2 - 0.03), y = cy + oy * (sy / 2 - 0.03);
+    box(x - 0.018, x + 0.018, y - 0.018, y + 0.018, 0, 0.42, mat.chair, furniture);
+  }
+  const bx = cx + back[0] * (sx / 2 - 0.02), by = cy + back[1] * (sy / 2 - 0.02);
+  if (along) box(cx - sx / 2, cx + sx / 2, by - 0.02, by + 0.02, 0.46, 0.90, mat.chair, furniture);
+  else box(bx - 0.02, bx + 0.02, cy - sy / 2, cy + sy / 2, 0.46, 0.90, mat.chair, furniture);
+}
+const g7 = 0.07;
+for (const x of [5.45, 6.05]) { chair(x, 9.90 - g7 - 0.16, [0, -1]); chair(x, 11.30 + g7 + 0.16, [0, 1]); }
+for (const y of [10.25, 10.95]) { chair(5.15 - g7 - 0.16, y, [-1, 0]); chair(6.35 + g7 + 0.16, y, [1, 0]); }
+
+// ------------------------------------------------------------------ terreno
+{
+  const size = 80, seg = 160;
+  const g = new THREE.PlaneGeometry(size, size, seg, seg);
+  g.rotateX(-Math.PI / 2);
+  g.translate(3.5, 0, 7.2);
+  const p = g.attributes.position;
+  const colors = new Float32Array(p.count * 3);
+  const base = new THREE.Color(0x7c9d55), alt = new THREE.Color(0x6b8c48);
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getZ(i);
+    p.setY(i, ground(y) - 0.005);
+    const n = Math.sin(p.getX(i) * 1.7) * Math.cos(y * 1.3) * 0.5 + 0.5;
+    const c = base.clone().lerp(alt, n * 0.6);
+    colors.set([c.r, c.g, c.b], i * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.computeVertexNormals();
+  const terrain = new THREE.Mesh(g, mat.grass);
+  terrain.receiveShadow = true;
+  scene.add(terrain);
+}
+// plantas del frente (planta: círculos)
+for (const [x, y, r] of [[0.60, 15.50, 0.32], [2.80, 15.50, 0.32], [7.60, 15.50, 0.27]]) {
+  const s = shadowed(new THREE.Mesh(new THREE.IcosahedronGeometry(r * 1.25, 1), mat.shrub));
+  s.scale.set(1, 0.9, 1);
+  s.position.set(x, ground(y) + r * 0.95, y);
+  scene.add(s);
+}
+
+// ------------------------------------------------------ rótulos y cotas
+function label(text, { bg = 'rgba(250,250,247,0.94)', fg = '#1c232b', height = 0.032, world = false, font = '700 64px "Barlow Condensed", "Arial Narrow", sans-serif' } = {}) {
+  const c = document.createElement('canvas');
+  const g = c.getContext('2d');
+  g.font = font;
+  const padX = 28, h = 96;
+  const w = Math.ceil(g.measureText(text).width) + padX * 2;
+  c.width = w; c.height = h;
+  g.font = font;
+  g.fillStyle = bg;
+  const r = 18;
+  g.beginPath();
+  g.moveTo(r, 0); g.arcTo(w, 0, w, h, r); g.arcTo(w, h, 0, h, r); g.arcTo(0, h, 0, 0, r); g.arcTo(0, 0, w, 0, r);
+  g.fill();
+  g.fillStyle = fg;
+  g.textBaseline = 'middle';
+  g.textAlign = 'center';
+  g.fillText(text, w / 2, h / 2 + 3);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: world }));
+  sp.scale.set(height * (w / h), height, 1);
+  sp.renderOrder = 10;
+  return sp;
+}
+
+const roomLabels = new THREE.Group();
+const dims = new THREE.Group();
+scene.add(roomLabels, dims);
+roomLabels.visible = false;
+dims.visible = false;
+
+const ACCENT = 0xe2a300;
+const dimMat = new THREE.MeshBasicMaterial({ color: ACCENT });
+function dimLine(a, b, text, labelOffset = new THREE.Vector3(0, 0.28, 0)) {
+  const A = new THREE.Vector3(a[0], a[2], a[1]), B = new THREE.Vector3(b[0], b[2], b[1]);
+  const g = new THREE.Group();
+  g.userData = { A, B };
+  dims.add(g);
+  const dir = B.clone().sub(A);
+  const len = dir.length();
+  const line = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, len, 6), dimMat);
+  line.position.copy(A).add(B).multiplyScalar(0.5);
+  line.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  line.renderOrder = 9;
+  g.add(line);
+  for (const P of [A, B]) {
+    const t = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), dimMat);
+    t.position.copy(P);
+    t.renderOrder = 9;
+    g.add(t);
+  }
+  const l = label(text, { bg: 'rgba(226,163,0,0.96)', fg: '#1e1a0e', height: 0.03,
+    font: '500 54px "IBM Plex Mono", ui-monospace, monospace' });
+  l.position.copy(line.position).add(labelOffset);
+  g.add(l);
+}
+
+async function buildLabels() {
+  try {
+    await Promise.all([
+      document.fonts.load('700 64px "Barlow Condensed"'),
+      document.fonts.load('500 54px "IBM Plex Mono"'),
+    ]);
+  } catch (_) { /* se usa la letra de reserva */ }
+  const rooms = [
+    ['DORMITORIO 2', 1.75, 3.10], ['DORMITORIO 1', 1.75, 6.60], ['SALA', 1.75, 11.30],
+    ['COCINA', 5.30, 6.70], ['COMEDOR', 5.75, 12.20], ['LAVANDERÍA', 5.75, 1.55], ['BAÑO', 5.25, 4.25],
+  ];
+  for (const [t, x, y] of rooms) {
+    const l = label(t, { height: 0.6, world: true });
+    l.position.set(x, 1.3, y);
+    roomLabels.add(l);
+  }
+  dimLine([0, 16.3, 0], [W, 16.3, 0], '7.00 m');
+  dimLine([-1.3, 0, 0], [-1.3, L, 0], '14.40 m', new THREE.Vector3(0, 0.3, 0));
+  dimLine([-0.8, -0.8, 0], [-0.8, -0.8, ZW], '2.80 m', new THREE.Vector3(-0.15, 0, 0));
+  dimLine([-0.8, YR, 0], [-0.8, YR, ZR], '3.30 m', new THREE.Vector3(-0.15, 0, 0));
+  dimLine([-0.8, 15.25, -1.0], [-0.8, 15.25, 0], '1.00 m', new THREE.Vector3(-0.15, 0, 0));
+  dimLine([W + 0.9, YC, 0], [W + 0.9, L, 0], '1.50 m');
+}
+
+// -------------------------------------------------------- vistas y cámara
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const BOX = new THREE.Box3(new THREE.Vector3(-0.7, -1.0, -0.6), new THREE.Vector3(W + 0.7, ZR + 0.15, 15.2));
+const VIEWS = {
+  '34': { dir: [0.62, 0.42, 1.0], target: [3.5, 0.8, 7.4] },
+  frente: { dir: [0, 0.10, 1], target: [3.5, 1.1, 7.2] },
+  derecha: { dir: [1, 0.10, 0], target: [3.5, 1.1, 7.2] },
+  atras: { dir: [0, 0.10, -1], target: [3.5, 1.1, 7.2] },
+  izquierda: { dir: [-1, 0.10, 0], target: [3.5, 1.1, 7.2] },
+  arriba: { dir: [0.0, 1.0, 0.18], target: [3.5, 0.0, 7.2] },
+};
+
+function fitPosition(view) {
+  const target = new THREE.Vector3(...view.target);
+  const d = new THREE.Vector3(...view.dir).normalize();
+  const fwd = d.clone().negate();
+  const upRef = Math.abs(d.y) > 0.95 ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 1, 0);
+  const right = new THREE.Vector3().crossVectors(fwd, upRef).normalize();
+  const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
+  const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const th = tv * camera.aspect;
+  let dist = 0;
+  for (let i = 0; i < 8; i++) {
+    const c = new THREE.Vector3(i & 1 ? BOX.max.x : BOX.min.x, i & 2 ? BOX.max.y : BOX.min.y, i & 4 ? BOX.max.z : BOX.min.z);
+    const rel = c.sub(target);
+    const depth = rel.dot(fwd);
+    dist = Math.max(dist, -depth + Math.abs(rel.dot(right)) / th, -depth + Math.abs(rel.dot(up)) / tv);
+  }
+  return { pos: target.clone().add(d.multiplyScalar(dist * 1.12)), target };
+}
+
+let tween = null;
+let currentView = '34';
+function goTo(name, instant = false) {
+  currentView = name;
+  const { pos, target } = fitPosition(VIEWS[name]);
+  if (instant || reduceMotion) {
+    camera.position.copy(pos);
+    controls.target.copy(target);
+    controls.update();
+    return;
+  }
+  tween = { t0: performance.now(), dur: 750, p0: camera.position.clone(), p1: pos,
+    q0: controls.target.clone(), q1: target };
+}
+
+const doorAnim = { from: 0, to: 0, t0: 0, dur: 600, value: 0 };
+function setDoors(open) {
+  doorAnim.from = doorAnim.value;
+  doorAnim.to = open ? 1 : 0;
+  doorAnim.t0 = performance.now();
+  if (reduceMotion) doorAnim.dur = 0;
+}
+
+const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
+const cardEl = document.querySelector('.card');
+const toolbarEl = document.querySelector('.toolbar');
+function resize() {
+  const w = host.clientWidth, h = Math.max(host.clientHeight, 1);
+  renderer.setSize(w, h, false);
+  // La ficha solo estorba cuando ocupa casi todo el ancho (celular, tableta).
+  const cr = cardEl.getBoundingClientRect(), tr = toolbarEl.getBoundingClientRect();
+  const top = cr.width > w * 0.5 ? Math.max(0, cr.bottom + 8) : 16;
+  const bottom = tr.height ? Math.max(0, h - tr.top + 8) : 0;
+  const band = Math.max(h - top - bottom, h * 0.4);
+  camera.aspect = w / band;
+  camera.setViewOffset(w, band, 0, -top, w, h);
+}
+
+function applyTheme() {
+  const css = getComputedStyle(document.documentElement);
+  const sky = new THREE.Color(css.getPropertyValue('--sky').trim() || '#cad8e4');
+  scene.background = sky;
+  scene.fog = new THREE.Fog(sky, 90, 240);
+  const dark = sky.getHSL({}).l < 0.3;
+  hemi.intensity = dark ? 0.75 : 1.25;
+  sun.intensity = dark ? 1.4 : 2.3;
+}
+
+// ---------------------------------------------------------------- interfaz
+const viewButtons = [...document.querySelectorAll('[data-view]')];
+for (const b of viewButtons) {
+  b.addEventListener('click', () => {
+    viewButtons.forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+    goTo(b.dataset.view);
+  });
+}
+controls.addEventListener('start', () => {
+  tween = null;
+});
+const state = { techo: true, muebles: true, puertas: false, cotas: false };
+for (const b of document.querySelectorAll('[data-toggle]')) {
+  b.addEventListener('click', () => {
+    const k = b.dataset.toggle;
+    state[k] = !state[k];
+    b.setAttribute('aria-pressed', String(state[k]));
+    if (k === 'techo') { roof.visible = state.techo; roomLabels.visible = !state.techo; }
+    if (k === 'muebles') furniture.visible = state.muebles;
+    if (k === 'puertas') setDoors(state.puertas);
+    if (k === 'cotas') dims.visible = state.cotas;
+  });
+}
+
+const pa = new THREE.Vector3(), pb = new THREE.Vector3();
+function frame(now) {
+  if (tween) {
+    const t = Math.min(1, (now - tween.t0) / tween.dur);
+    const k = ease(t);
+    camera.position.lerpVectors(tween.p0, tween.p1, k);
+    controls.target.lerpVectors(tween.q0, tween.q1, k);
+    if (t >= 1) tween = null;
+  }
+  if (doorAnim.value !== doorAnim.to) {
+    const t = doorAnim.dur ? Math.min(1, (now - doorAnim.t0) / doorAnim.dur) : 1;
+    doorAnim.value = doorAnim.from + (doorAnim.to - doorAnim.from) * ease(t);
+    for (const d of doors) d.pivot.rotation.y = d.a0 + (d.a1 - d.a0) * doorAnim.value;
+  }
+  controls.update();
+  if (dims.visible) {
+    const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
+    for (const g of dims.children) {
+      pa.copy(g.userData.A).project(camera);
+      pb.copy(g.userData.B).project(camera);
+      g.visible = Math.hypot((pa.x - pb.x) * w, (pa.y - pb.y) * h) / 2 > 70;
+    }
+  }
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+
+try {
+  applyTheme();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  resize();
+  const ro = new ResizeObserver(() => { resize(); });
+  for (const el of [host, cardEl, toolbarEl]) ro.observe(el);
+  goTo('34', true);
+  buildLabels();
+  requestAnimationFrame(frame);
+  statusEl.textContent = 'A escala, con las medidas del plano y las cuatro vistas.';
+  window.casa3d = { scene, camera, controls, goTo, state };
+} catch (err) {
+  statusEl.textContent = 'No se pudo abrir el visor 3D en este navegador. Prueba con Chrome, Edge o Safari actualizados.';
+  console.error(err);
+}
+</script>
+<script>
+  // Si la librería 3D no carga (sin conexión), avisa en la ficha.
+  setTimeout(function () {
+    if (!window.casa3d) {
+      var s = document.getElementById('status');
+      if (s && /Cargando/.test(s.textContent)) {
+        s.textContent = 'El modelo no terminó de cargar. Revisa tu conexión y vuelve a abrir la página.';
+      }
+    }
+  }, 12000);
+</script>
+</body>
+</html>
